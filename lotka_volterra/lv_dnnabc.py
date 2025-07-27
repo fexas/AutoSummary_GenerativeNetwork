@@ -8,13 +8,13 @@ import numpy as np
 import tensorflow as tf
 import csv
 from scipy.integrate import odeint
-import tensorflow_probability as tfp
 from tensorflow import keras
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Bidirectional, Dense, Conv1D
 import seaborn as sns
 import matplotlib.pyplot as plt
 import time
+import warnings
 
 
 # file path
@@ -22,6 +22,9 @@ current_dir = os.getcwd()
 # 创建nn_fig文件夹
 fig_folder = "dnnabc_fig"
 os.makedirs(fig_folder, exist_ok=True)
+ps_folder = "dnnabc_ps"
+os.makedirs(ps_folder, exist_ok=True)
+quan1_record_csv = "dnn_quan1_record.csv"
 
 # parameters for data
 N = 12800  #  data_size
@@ -33,34 +36,38 @@ p = d  # dimension of summary statistics
 T_count = 15
 x0 = 10
 y0 = 5
-p_lower = -2
-p_upper = 2
-
+p_lower = -5.0
+p_upper = 2.0
+p_lower_list = np.array([p_lower] * d)
+p_upper_list = np.array([p_upper] * d)
+true_ps = np.log(np.array([1, 0.01, 0.5, 0.01]))
+true_ps_tf = tf.convert_to_tensor(true_ps, dtype=tf.float32)
+true_ps_ls = true_ps.tolist()
+rng = np.random
 
 ## DNNABC's parameters
-default_lr = 0.0005
+default_lr = 0.001
+epochs = 700
 batch_size = 256
-Np = 20000  # number of estimate theta
-threshold = 0.25  # threshold for Approximate Bayesian Computation
 OPTIMIZER_DEFAULTS = {"global_clipnorm": 1.0}
 
-rng = np.random
-true_ps = np.array([1, 1, 1, 1])
+
 file_path = os.path.join(current_dir, "data", "obs_xs.npy")
 obs_xs = np.load(file_path)
+x_target = obs_xs.reshape((1, n, d_x))
+x_target = tf.convert_to_tensor(x_target, dtype=tf.float32)
 dtype = np.float32
 
+# color setting
+truth_color = "#FF6B6B"
+est_color = "#4D96FF"
+upper_labels=["\\theta_1","\\theta_2","\\theta_3","\\theta_4"]
 
 # lv
 
-p_lower_list = np.array([-2, -2, -2, -2])
-p_higher_list = np.array([2, 2, 2, 2])
-
-
 def _Prior(batch_size):
-    theta = np.random.uniform(p_lower_list, p_higher_list, size=(batch_size, 4))
-    return np.exp(theta)
-
+    theta = np.random.uniform(p_lower_list, p_upper_list, size=(batch_size, 4))
+    return theta
 
 def lotka_volterra_forward(params, n_obs, T_span, x0, y0):
 
@@ -86,11 +93,11 @@ def lotka_volterra_forward(params, n_obs, T_span, x0, y0):
         )
 
     # parameter for the Lotka-Volterra model
-    t_steps = 400
+    t_steps = n_obs
     t_span = [0, T_span]
     alpha, beta, gamma, delta = np.exp(params)
     initial_state = [x0, y0]
-    noise_scale = 0.1
+    noise_scale = 0.01
 
     x, y, t = ecology_model(
         alpha,
@@ -102,21 +109,12 @@ def lotka_volterra_forward(params, n_obs, T_span, x0, y0):
         initial_state=initial_state,
     )
 
-    # Add Gaussian noise to observations
-    noisy_x = rng.normal(x, noise_scale)
-    noisy_y = rng.normal(y, noise_scale)
-
-    step_indices = np.arange(0, t_steps, 1)
-    observed_indices = np.sort(rng.choice(step_indices, n_obs, replace=False))
+    # add noise to the time series
+    x += rng.normal(0, noise_scale, size=x.shape)
+    y += rng.normal(0, noise_scale, size=y.shape)
 
     # concatenate the observed time series of x and y
-    observed_X = np.concatenate(
-        (
-            noisy_x[observed_indices].reshape(-1, 1),
-            noisy_y[observed_indices].reshape(-1, 1),
-        ),
-        axis=1,
-    )
+    observed_X = np.concatenate((x.reshape(-1, 1), y.reshape(-1, 1)), axis=1)
 
     return observed_X
 
@@ -133,7 +131,7 @@ def simulate_lv_params(
     """
 
     theta = np.atleast_2d(theta)
-    X = np.zeros((theta.shape[0], n_points, 2))
+    X = np.zeros((theta.shape[0], n_points, d_x))
 
     for j in range(theta.shape[0]):
         X[j] = lotka_volterra_forward(theta[j], n_points, T, x0, y0)
@@ -241,30 +239,7 @@ class DNNABC(keras.Model):
     def predict(self, x_obs):
         return self.T(x_obs)
 
-
-x_target = obs_xs.reshape((1, n, d_x))
-x_target = tf.convert_to_tensor(x_target, dtype=tf.float32)
-
-
-def compute_abc_metric(dnnabc, x):
-
-    x = tf.convert_to_tensor(x, dtype=tf.float32)
-    x = tf.reshape(x, (1, n, d_x))
-
-    S_x = dnnabc.predict(x)
-    S_x_obs = dnnabc.predict(x_target)
-
-    mse = tf.keras.losses.MeanSquaredError()
-    mse_loss = mse(S_x, S_x_obs)
-
-    return mse_loss
-
-
 def run_experiments(it):
-
-    batch_size = 256
-    epochs = 450
-    default_lr = 0.0005
 
     # load training data
     file_path = os.path.join(current_dir, "data", "x_train.npy")
@@ -310,13 +285,43 @@ def run_experiments(it):
 
     dnnabc.compile(optimizer=dnnabc_optimizer, run_eagerly=False)
 
-    dnnabc.fit(x_train, epochs=epochs, batch_size=batch_size, verbose=0)
+    dnnabc.fit(x_train, epochs=epochs, batch_size=batch_size, verbose=1)
 
+    # Determine Threshold
+    N_ref = 5000
+    Theta_ref = _Prior(N_ref)
+    X_ref = simulate_lv_params(Theta_ref,n_points,x0,y0,T_count)
+    X_ref = tf.convert_to_tensor(X_ref, dtype=tf.float32)
+    TX_ref = dnnabc.T(X_ref)
+    TX_to_target_ref = TX_ref - dnnabc.T(x_target)
+    TX_to_target_ref = tf.reduce_sum(TX_to_target_ref**2, axis=-1)
+    threshold = np.quantile(TX_to_target_ref.numpy(), 0.01)
+    with open(quan1_record_csv, mode="a", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow([threshold])
+
+    if Theta_ref.shape[0] == 0:
+        warnings.warn("Error: Theta_ref is empty - prior sampling failed")
+    elif np.isnan(Theta_ref).any():
+        warnings.warn(f"Warning: NaN values found in Theta_ref. Count: {np.isnan(Theta_ref).sum()}")
+
+    if X_ref.shape[0] == 0:
+        warnings.warn("Error: X_ref is empty - simulation failed")
+    elif np.isnan(X_ref.numpy()).any():
+        warnings.warn(f"Warning: NaN values found in X_ref. Count: {np.isnan(X_ref.numpy()).sum()}")
+
+    if np.isnan(TX_ref.numpy()).any():
+        warnings.warn(f"Warning: NaN values found in TX_ref. Count: {np.isnan(TX_ref.numpy()).sum()}")
+    elif np.isnan(dnnabc.T(x_target).numpy()).any():
+        warnings.warn("Warning: NaN values found in dnnabc.T(x_target)")
+
+    if np.isnan(TX_to_target_ref.numpy()).any():
+        warnings.warn(f"Warning: NaN values found in TX_to_target_ref. Count: {np.isnan(TX_to_target_ref.numpy()).sum()}")
+    
     # ABC_posterior
 
-    # thresold = 0.25
     N_simulation = 1000
-    iter_num = 10
+    iter_num = 500
 
     for i in range(iter_num):
 
@@ -324,9 +329,9 @@ def run_experiments(it):
         X_candidate = simulate_lv_params(
             Theta_candidate, n_points, x0, y0, T_count
         )
-
-        T_X_candidate = dnnabc.predict(X_candidate)
-        diff = T_X_candidate - dnnabc.predict(x_target)
+        X_candidate = tf.convert_to_tensor(X_candidate, dtype=tf.float32)
+        T_X_candidate = dnnabc.T(X_candidate)
+        diff = T_X_candidate - dnnabc.T(x_target)
         mse = tf.reduce_sum(diff**2, axis=1)
 
         if i == 0:
@@ -336,21 +341,19 @@ def run_experiments(it):
             mse_ = tf.concat([mse_, mse], axis=0)
             Theta_candidate_ = tf.concat([Theta_candidate_, Theta_candidate], axis=0)
 
-    # 测试一下仅接受前1%的样本拟合出来是什么结果
-    mse_threshold = tf.sort(mse_)[int(0.15 * N_simulation * iter_num)]
-    threshold = np.array(mse_threshold)
-
     idx = tf.where(mse_ < threshold)
     idx = tf.squeeze(idx, axis=1)
 
     Theta_accp = tf.gather(Theta_candidate_, idx)
-    print(Theta_accp.shape)
 
-    accp_rate = idx.shape[0] / N_simulation
+    accp_rate = idx.shape[0] / (N_simulation * iter_num)
+
+    # save Theta_accp
+    ps_path = os.path.join(ps_folder,f"dnnabc_ps_{it}.npy")
+    np.save(ps_path, Theta_accp.numpy())
 
     Theta_accp_mean = tf.reduce_mean(Theta_accp, axis=0)
     Theta_accp_mean = tf.cast(Theta_accp_mean, dtype=tf.float32)
-    true_ps_tf = tf.constant([1.0, 1.0, 1.0, 1.0], dtype=tf.float32)
     bias = tf.norm(Theta_accp_mean - true_ps_tf, ord="euclidean", axis=None)
 
     # 绘图
@@ -370,19 +373,34 @@ def run_experiments(it):
         return low, high
 
     sns.set_style("whitegrid")
+    fig, axs = plt.subplots(1, 4, figsize=(20, 6))
 
-    true_ps = [1, 1, 1, 1]
+    x_limits = [
+        [-0.4, 0.4],  # theta_0
+        [-5.2, -4.0],  # theta_1
+        [-1.0, -0.5],  # theta_2
+        [-5.2, -4.0],  # theta_3
+    ]
+    for j, ax in enumerate(axs):
+        ax.set_xlim(x_limits[j])
+        ax.set_xticks(np.linspace(x_limits[j][0], x_limits[j][1], 5))
 
-    # 创建一个图形
-    fig, axs = plt.subplots(1, 4, figsize=(20, 4))
-    # 为每个分量绘制 KDE 图
-
-    for j in range(d):
-        sns.kdeplot(Theta_accp[:, j], ax=axs[j], fill=False, label="DNNABC",color='blue')
+    for upper_label, j in zip(upper_labels, range(d)):
+        sns.kdeplot(
+            Theta_accp[:, j],
+            ax=axs[j],
+            fill=False,
+            label="DNNABC",
+            color=est_color,
+            linewidth=1.5,
+            linestyle="-",
+        )
+        axs[j].set_title(f"${upper_label}$", pad=15)
+        axs[j].set_ylabel("")
 
     # 在每个子图上添加竖线表示真实参数的位置
-    for ax, true_p in zip(axs, true_ps):
-        ax.axvline(true_p, color="r", linestyle="--", linewidth=1)
+    for ax, true_p in zip(axs, true_ps_ls):
+        ax.axvline(true_p, color=truth_color, linestyle="-", linewidth=1.5)
 
     # 在每个子图上绘制 95% credible interval
     low, high = credible_interval(Theta_accp)
@@ -392,21 +410,17 @@ def run_experiments(it):
         axs[i].fill_betweenx(
             axs[i].get_ylim(), low[i], high[i], color="b", alpha=0.3
         )  # 填充带状区域
-        axs[i].axvline(low[i], color="b", linestyle="--", linewidth=1)
-        axs[i].axvline(high[i], color="b", linestyle="--", linewidth=1)
+        axs[i].axvline(low[i], color=est_color, linestyle="--", linewidth=1.5)
+        axs[i].axvline(high[i], color=est_color, linestyle="--", linewidth=1.5)
 
-    # 设置每个子图的标题
-    axs[0].set_title("theta1")
-    axs[1].set_title("theta2")
-    axs[2].set_title("theta3")
-    axs[3].set_title("theta4")
-
-    # 保存图片
-    plt.legend()
+    # save figure
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=1)
+    plt.tight_layout(pad=3.0)
     plt.savefig(os.path.join(fig_folder, f"dnnabc_lv_{it}.png"))
     plt.close()
 
-    return bias.numpy(), accp_rate, mse_threshold, low, high, ci_length
+    return bias.numpy(), accp_rate, low, high, ci_length
 
 
 output_file = f"dnnabc_lv_results1.csv"
@@ -415,7 +429,7 @@ credible_interval_file = f"dnnabc_lv_credible_interval1.csv"
 with open(output_file, "w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(
-        ["Experiment_Index", "runtime", "bias", "accpt_rate", "0.001 threshold"]
+        ["Experiment_Index", "runtime", "bias", "accpt_rate"]
     )
 
 with open(credible_interval_file, "w", newline="") as f:
@@ -444,7 +458,7 @@ it = 0
 for it in range(10):
 
     start_time = time.time()
-    bias, accp_rate, mse_threshold, low, high, ci_length = run_experiments(it)
+    bias, accp_rate, low, high, ci_length = run_experiments(it)
     end_time = time.time()
 
     elapsed_time = end_time - start_time
@@ -452,7 +466,7 @@ for it in range(10):
 
     with open(output_file, "a", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([it, elapsed_time_str, bias, accp_rate, mse_threshold.numpy()])
+        writer.writerow([it, elapsed_time_str, bias, accp_rate])
 
     with open(credible_interval_file, "a", newline="") as f:
         writer = csv.writer(f)

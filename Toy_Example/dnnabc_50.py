@@ -7,7 +7,6 @@ import scipy
 import numpy as np
 import tensorflow as tf
 import csv
-import tensorflow_probability as tfp
 from tensorflow import keras
 from tensorflow.keras import layers, regularizers
 from tensorflow.keras.models import Sequential
@@ -22,6 +21,9 @@ current_dir = os.getcwd()
 # 创建nn_fig文件夹
 fig_folder = "dnnabc_fig"
 os.makedirs(fig_folder, exist_ok=True)
+ps_folder = "dnnabc_ps"
+os.makedirs(ps_folder, exist_ok=True)
+quan1_record_csv = "dnn_quan1_record.csv"
 
 # parameters for data
 N = 12800  #  data_size
@@ -35,10 +37,15 @@ h_mmd = h_mmd**2
 OPTIMIZER_DEFAULTS = {"global_clipnorm": 1.0}
 
 ## DNNABC's parameters
-default_lr = 0.0005
+default_lr = 0.001
+epochs = 500
 batch_size = 256
-Np = 10000  # number of estimate theta
-threshold = 0.2  # threshold for Approximate Bayesian Computation
+
+# color setting
+truth_color = "#FF6B6B"
+est_color = "#4D96FF"
+refined_color = "#6BCB77"
+upper_labels=["\\theta_1","\\theta_2","\\theta_3","\\theta_4","\\theta_5"]
 
 # preliminary class
 
@@ -587,10 +594,6 @@ def compute_abc_metric(dnnabc, x):
 
 def run_experiments(it):
 
-    batch_size = 256
-    epochs = 450
-    default_lr = 0.0005
-
     file_path = os.path.join(current_dir, "data", "h_mmd.npy")
     h_mmd = np.load(file_path)  # bandwidth of MMD
     h_mmd = h_mmd**2
@@ -649,11 +652,25 @@ def run_experiments(it):
 
     dnnabc.fit(x_train, epochs=epochs, batch_size=batch_size, verbose=0)
 
-    # ABC_posterior
+    # determine ABC threshold
+    N_ref = 5000
+    Theta_ref = toy_prior().random(N_ref)
+    X_ref = model.sim_preserved_shape(ps=Theta_ref)
+    X_ref = stereo_proj(X_ref)
+    X_ref = tf.convert_to_tensor(X_ref, dtype=tf.float32)
+    X_ref = tf.reshape(X_ref, (N_ref, n, d_x))
+    TX_ref = dnnabc.predict(X_ref)
+    TX_to_target_ref = TX_ref -dnnabc.predict(x_target)
+    TX_to_target_ref = tf.reduce_sum(TX_to_target_ref**2, axis=-1)
+    threshold = np.quantile(TX_to_target_ref.numpy(), 0.01)
+    with open(quan1_record_csv, "a", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow([threshold])
 
+    # ABC_posterior
     
     N_simulation = 1000
-    iter_num = 400
+    iter_num = 500
 
     for i in range(iter_num):
 
@@ -674,10 +691,6 @@ def run_experiments(it):
         else:
             mse_ = tf.concat([mse_, mse], axis=0)
             Theta_candidate_ = tf.concat([Theta_candidate_, Theta_candidate], axis=0)
-
-    # 测试一下仅接受前0.1%的样本拟合出来是什么结果
-    mse_threshold = tf.sort(mse_)[int(0.001 * N_simulation * iter_num)]
-    threshold = np.array(mse_threshold)
     
     idx = tf.where(mse_ < threshold)
     idx = tf.squeeze(idx, axis=1)
@@ -689,20 +702,15 @@ def run_experiments(it):
     ps_tf = tf.convert_to_tensor(ps, dtype=tf.float32)
     mmd_dnnabc = compute_mmd(Theta_accp, ps_tf, h_mmd)
 
-
-    # 0.001 quantile of mse
-    # mse_list = np.array(mse_list)
-    # mse_list = np.sort(mse_list)
-    # mse_threshold = mse_list[int(0.01 * N_simulation)]
+    # save Theta_accp
+    ps_path = os.path.join(ps_folder, f"dnnabc_ps_{it}.npy")
+    np.save(ps_path, Theta_accp.numpy())
 
     # 绘图
 
     sns.set_style("whitegrid")
-
+    fig, axs = plt.subplots(1, 5, figsize=(25, 6))
     true_ps = [1, 1, -1.0, -0.9, 0.6]
-
-    # 创建一个图形
-    fig, axs = plt.subplots(1, 5, figsize=(25, 4))
 
     # 定义每个theta_i对应的x轴范围
     x_limits = [
@@ -712,61 +720,54 @@ def run_experiments(it):
         [-1.5, 1.5],  # theta_3
         [0, 1.2],  # theta_4
     ]
-    # 为每个子图设置x轴范围
-    for i, ax in enumerate(axs):
-        ax.set_xlim(x_limits[i])
 
-    # 为每个分量绘制 KDE 图
     for j, ax in enumerate(axs):
+        ax.set_xlim(x_limits[j])
+        ax.set_xticks(np.linspace(x_limits[j][0], x_limits[j][1], 5))
+
+    for upper_label, j in zip(upper_labels, range(d)):
         sns.kdeplot(
             ps[:, j],
-            ax=ax,
+            ax=axs[j],
             fill=False,
-            color="red",
+            color=truth_color,
             label="posterior",
-            linewidth=1,
+            linewidth=1.5,
             linestyle="-.",
         )
         sns.kdeplot(
             Theta_accp[:, j],
-            ax=ax,
+            ax=axs[j],
             fill=False,
             label="DNNABC",
-            color="blue",
-            linewidth=1,
+            color=est_color,
+            linewidth=1.5,
             linestyle="-",
         )
+        axs[j].set_title(f"${upper_label}$", pad=15)
+        axs[j].set_ylabel("")
 
-    # 在每个子图上添加竖线表示真实参数的位置
-    for ax, true_p in zip(axs, true_ps):
-        ax.axvline(true_p, color="r", linestyle="--", linewidth=1)
-
-    # 设置每个子图的标题
-    axs[0].set_title("theta1")
-    axs[1].set_title("theta2")
-    axs[2].set_title("theta3")
-    axs[3].set_title("theta4")
-    axs[4].set_title("theta5")
-
-    # 保存图片
-    plt.legend()
+    # save figure
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=2)
+    plt.tight_layout(pad=3.0)
     plt.savefig(os.path.join(fig_folder, f"DNNABC_{it}.png"))
     plt.close()
 
-    return accp_rate, mse_threshold.numpy(), mmd_dnnabc.numpy()
+    return accp_rate, mmd_dnnabc.numpy()
 
 
 output_file = f"dnnabc_{n}_result1.csv"
 with open(output_file, "w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(
-        ["Experiment_Index", "runtime", "accpt_rate", "thresold", "mmd"]
+        ["Experiment_Index", "runtime", "accpt_rate", "mmd"]
     )
 
 
 for it in range(10):
     start_time = time.time()
-    accp_rate, mse_threshold, mmd_dnnabc = run_experiments(it)
+    accp_rate, mmd_dnnabc = run_experiments(it)
     end_time = time.time()
 
     elapsed_time = end_time - start_time
@@ -774,4 +775,4 @@ for it in range(10):
 
     with open(output_file, "a", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([it, elapsed_time_str, accp_rate, mse_threshold, mmd_dnnabc])
+        writer.writerow([it, elapsed_time_str, accp_rate, mmd_dnnabc])

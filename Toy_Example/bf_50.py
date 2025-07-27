@@ -24,18 +24,24 @@ p = 10  # dimension of summary statistics
 ## bayesflow's parameters
 batch_size = 256
 Np = 500  # number of estimate theta'
-epoch = 450
-default_lr = 0.0005 
+default_lr =  0.001 # 0.0005
+epoch = 500
 
 # MCMC Parameters Setup
-N_proposal = 50  # 3000
+N_proposal = 1000 # 3000
 n_samples = 100
-burn_in = 2000
+burn_in = 249
 thin = 10
 Ns = 5
 proposed_std = 0.05
-quantile_level = 0.0025  # 0.001 # quantile level for bandwidth estimation
-epsilon_upper_bound = 0.01
+quantile_level = 0.001 # 0.0025  # 0.001 # quantile level for bandwidth estimation
+epsilon_upper_bound = 0.035 # 0.05 # 0.01
+
+# color setting
+truth_color = "#FF6B6B"
+est_color = "#4D96FF"
+refined_color = "#6BCB77"
+upper_labels=["\\theta_1","\\theta_2","\\theta_3","\\theta_4","\\theta_5"]
 
 file_path = os.path.join(current_dir, "data", "h_mmd.npy")
 h_mmd = np.load(file_path)  # bandwidth of MMD
@@ -50,8 +56,12 @@ os.makedirs(gif_folder, exist_ok=True)
 ps_folder = "bf_ps"
 os.makedirs(ps_folder, exist_ok=True)
 
+mcmc_samples_folder = "bf_mcmc_samples"
+os.makedirs(mcmc_samples_folder, exist_ok=True)
+
 likelihood_bandwidth_path = os.path.join(current_dir, "likelihood_bandwidth_bf.txt")
 debug_txt_path = os.path.join(current_dir, "bf_debug.txt")
+quan1_record_csv = "bf_quan1_record.csv"
 
 # class for toy example
 
@@ -529,8 +539,9 @@ def run_experiment(it):
     # 绘图
 
     sns.set_style("whitegrid")
-
+    fig, axs = plt.subplots(1, 5, figsize=(25, 6))
     true_ps = [1, 1, -1.0, -0.9, 0.6]
+
     # 定义每个theta_i对应的x轴范围
     x_limits = [
         [0.7, 1.3],  # theta_0
@@ -539,46 +550,37 @@ def run_experiment(it):
         [-1.5, 1.5],  # theta_3
         [0, 1.2],  # theta_4
     ]
-    # 创建一个图形
-    fig, axs = plt.subplots(1, 5, figsize=(25, 4))
 
     for j, ax in enumerate(axs):
         ax.set_xlim(x_limits[j])
         ax.set_xticks(np.linspace(x_limits[j][0], x_limits[j][1], 5))
 
-    for j, ax in enumerate(axs):
+    for upper_label, j in zip(upper_labels, range(d)):
         sns.kdeplot(
             ps[:, j],
-            ax=ax,
+            ax=axs[j],
             fill=False,
-            label="posterior",
+            label=truth_color,
             color="red",
             linestyle="-.",
-            linewidth=1,
+            linewidth=1.5,
         )
         sns.kdeplot(
             bf_ps[:, j],
-            ax=ax,
+            ax=axs[j],
             fill=False,
             label="BF",
-            color="blue",
+            color=est_color,
             linestyle="-",
-            linewidth=1,
+            linewidth=1.5,
         )
+        axs[j].set_title(f"${upper_label}$", pad=15)
+        axs[j].set_ylabel("")
 
-    # 在每个子图上添加竖线表示真实参数的位置
-    # for ax, true_p in zip(axs, true_ps):
-    #     ax.axvline(true_p, color="r", linestyle="--", linewidth=1)
-
-    # 设置每个子图的标题
-    axs[0].set_title("theta1")
-    axs[1].set_title("theta2")
-    axs[2].set_title("theta3")
-    axs[3].set_title("theta4")
-    axs[4].set_title("theta5")
-
-    # 保存图片
-    plt.legend()
+    # save figure
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=2)
+    plt.tight_layout(pad=3.0)
     graph_file = os.path.join(fig_folder, f"bf_{n}_experiment_{it}.png")
     plt.savefig(graph_file)
     plt.close()
@@ -622,6 +624,9 @@ def run_experiment(it):
     Diff = tf.reduce_sum((summary_net(xx) - TT) ** 2, axis=1)
     Diff = tf.sqrt(Diff)
     quan1 = np.quantile(Diff.numpy(), quantile_level)
+    with open(quan1_record_csv, mode="a", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow([quan1])
     quan1 = min(quan1, epsilon_upper_bound)
 
 
@@ -835,6 +840,7 @@ def run_experiment(it):
 
         samples = []
         accepted = 0
+        mcmc_samples = []
 
         # Initialize MCMC proposals
         current_theta = generate_initial_proposal_mcmc(N_proposal)
@@ -875,17 +881,20 @@ def run_experiment(it):
             if i_mcmc >= burn_in and (i_mcmc - burn_in) % thin == 0:
                 samples.append(current_theta)
 
+            mcmc_samples.append(current_theta)
+
         acceptance_rate = accepted / (n_samples * N_proposal)
         samples = tf.concat(samples, axis=0)
+        mcmc_samples = np.array(mcmc_samples)
 
-        return samples, acceptance_rate
+        return samples, acceptance_rate, mcmc_samples
         
     # -----------------------------
     # Run MCMC Refinement Multiple Times
     # -----------------------------
 
     refined_time_start = time.time()      
-    Theta_mcmc, accp_rate = mcmc_refinement(
+    Theta_mcmc, accp_rate, mcmc_samples = mcmc_refinement(
         N_proposal=N_proposal,
         n_samples=n_samples,
         burn_in=burn_in,
@@ -902,6 +911,9 @@ def run_experiment(it):
     # Save the MCMC results
     ps_mcmc_path = os.path.join(ps_folder, f"bf_{n}_ps_mcmc_{it}.npy")
     np.save(ps_mcmc_path, Theta_mcmc.numpy())
+
+    total_mcmc_samples_path = os.path.join(mcmc_samples_folder, f"bf_{n}_mcmc_samples_{it}.npy")
+    np.save(total_mcmc_samples_path, mcmc_samples)
 
     # -----------------------------
     # Calculate MMD for MCMC Results
@@ -921,9 +933,8 @@ def run_experiment(it):
 
     # 绘图
     sns.set_style("whitegrid")
-
-    # 创建一个图形
-    fig, axs = plt.subplots(1, 5, figsize=(25, 4))
+    fig, axs = plt.subplots(1, 5, figsize=(25, 6))
+    true_ps = [1, 1, -1.0, -0.9, 0.6]
 
     # 定义每个theta_i对应的x轴范围
     x_limits = [
@@ -934,55 +945,45 @@ def run_experiment(it):
         [0, 1.2],  # theta_4
     ]
 
-    # 创建一个图形
-    fig, axs = plt.subplots(1, 5, figsize=(25, 4))
-
     for j, ax in enumerate(axs):
         ax.set_xlim(x_limits[j])
         ax.set_xticks(np.linspace(x_limits[j][0], x_limits[j][1], 5))
 
-    for j, ax in enumerate(axs):
+    for upper_label, j in zip(upper_labels,range(d)):
         sns.kdeplot(
             ps[:, j],
-            ax=ax,
+            ax=axs[j],
             fill=False,
             label="posterior",
-            color="red",
+            color=truth_color,
             linestyle="-.",
-            linewidth=1,
+            linewidth=1.5,
         )
         sns.kdeplot(
             bf_ps[:, j],
-            ax=ax,
+            ax=axs[j],
             fill=False,
             label="BF",
-            color="blue",
+            color=est_color,
             linestyle="-",
-            linewidth=1,
+            linewidth=1.5,
         )
         sns.kdeplot(
             Theta_mcmc[:, j],
-            ax=ax,
+            ax=axs[j],
             fill=False,
             label="BF+ABC-MCMC",
-            color="green",
+            color=refined_color,
             linestyle="--",
-            linewidth=1,
+            linewidth=1.5,
         )
+        axs[j].set_title(f"${upper_label}$", pad=15)
+        axs[j].set_ylabel("")
 
-    # 在每个子图上添加竖线表示真实参数的位置
-    # for ax, true_p in zip(axs, true_ps):
-    #     ax.axvline(true_p, color="r", linestyle="--", linewidth=1)
-
-    # 设置每个子图的标题
-    axs[0].set_title("theta1")
-    axs[1].set_title("theta2")
-    axs[2].set_title("theta3")
-    axs[3].set_title("theta4")
-    axs[4].set_title("theta5")
-
-    # 保存图片
-    plt.legend()
+    # save figure
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=3)
+    plt.tight_layout(pad=3.0)
     graph_file = os.path.join(fig_folder, f"bf_{n}_refined_experiment_{it}.png")
     plt.savefig(graph_file)
     plt.close()
@@ -1024,7 +1025,7 @@ with open(marginal_mmd_output_file, "w", newline="") as f:
         + [f"rm_mmd theta_{i+1}" for i in range(d)]
     )
 
-for i in range(5):
+for i in range(10):
     print(f"Running experiment {i+1}")
     (
         elapsed_train_time_str,

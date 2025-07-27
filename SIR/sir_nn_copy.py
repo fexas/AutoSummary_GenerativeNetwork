@@ -49,8 +49,8 @@ M = 50  # Number of theta estimates for MMD calculation
 n_samples_z = 20  # Number of unit vectors in S^{d-1} for slicing
 Np = 500  # 20000  # Number of theta estimates to generate
 batch_size = 256  # Batch size for neural network training
-default_lr = 0.002 # 0.001  # 0.00025  # 0.0005
-epochs = 750
+default_lr = 0.002 # 0.003 # 0.001  # 0.00025  # 0.0005
+epochs = 700
 
 # MCMC Parameters Setup
 Ns = 5  # Number of draws for empirical likelihood estimator
@@ -161,9 +161,8 @@ def generate_observation(theta, T_steps):
         # Add observation noise
         white_noise = np.random.normal(0, sigma, size=batch_size)
         I_new_obs = (1 + white_noise) * I_new
-
-        I_new_obs_list.append(I_new_obs)
-        I_new_obs = np.clip(I_new_obs, 0, 1)  # Ensure observations are within [0, 1]
+        I_new_obs = np.clip(I_new_obs, 0.0, 1.0)
+        I_new_obs_list.append(I_new_obs) # Ensure observations are within [0, 1]
 
     return np.array(I_new_obs_list).T
 
@@ -295,7 +294,7 @@ class NN(keras.Model):
         """
 
         bandwidth = tf.constant(
-            [1 / (1 * n)], "float32"
+            [1 / (2 * n)], "float32"
         )  # tf.constant([1 / n, 1 / (4 * n), 1 / (25 * n)], "float32")
         constant = tf.sqrt(1 / bandwidth)
 
@@ -590,13 +589,12 @@ def run_experiments(it):
     Diff = tf.sqrt(Diff)
     Diff = tf.cast(Diff, "float32")
     quan1 = np.quantile(Diff.numpy(), quantile_level)
-    quan1 = min(quan1, epsilon_upper_bound)
-    quan1 = tf.constant(quan1, dtype=tf.float32)
-
     # record the quan1 value in a CSV file
     with open(quan1_record_csv, mode="a", newline="") as file:
         writer = csv.writer(file)
         writer.writerow([quan1])
+    quan1 = min(quan1, epsilon_upper_bound)
+    quan1 = tf.constant(quan1, dtype=tf.float32)
 
     # -----------------------------
     # Create Folders for Saving Figures
@@ -778,8 +776,10 @@ def run_experiments(it):
 
             accept_mask = u < acceptance_prob
             accept_mask_2d = tf.expand_dims(accept_mask, axis=1)
-            if i_mcmc >= burn_in:
-                accepted += tf.reduce_sum(tf.cast(accept_mask, tf.float32))
+            # if i_mcmc >= burn_in:
+            #     accepted += tf.reduce_sum(tf.cast(accept_mask, tf.float32))
+            # Alternative
+            accepted += tf.reduce_sum(tf.cast(accept_mask, tf.float32))
 
             current_theta = tf.where(accept_mask_2d, proposed_theta, current_theta)
             current_ratio = tf.where(accept_mask, proposed_ratio, current_ratio)
@@ -787,7 +787,9 @@ def run_experiments(it):
             if i_mcmc >= burn_in and (i_mcmc - burn_in) % thin == 0:
                 samples.append(current_theta)
 
-        acceptance_rate = accepted / (n_samples * N_proposal)
+        # acceptance_rate = accepted / (n_samples * N_proposal)
+        # Alternative
+        acceptance_rate = accepted / ( (n_samples + burn_in) * N_proposal)
         samples = tf.concat(samples, axis=0)
 
         return samples, acceptance_rate
@@ -842,15 +844,6 @@ def run_experiments(it):
 
     # Plot KDE for SMMD+ABC-MCMC estimation
     for upper_label, j in zip(upper_labels, range(d)):
-        sns.kdeplot(
-            Theta_mcmc[:, j],
-            ax=axs[j],
-            fill=False,
-            label="SMMD+ABC-MCMC",
-            color=refined_color,
-            linewidth=1.5,
-            linestyle="-",
-        )
 
         sns.kdeplot(
             Y0[:, j],
@@ -858,6 +851,16 @@ def run_experiments(it):
             fill=False,
             label="SMMD",
             color=est_color,
+            linewidth=1.5,
+            linestyle="-",
+        )
+
+        sns.kdeplot(
+            Theta_mcmc[:, j],
+            ax=axs[j],
+            fill=False,
+            label="SMMD+ABC-MCMC",
+            color=refined_color,
             linewidth=1.5,
             linestyle="-",
         )
@@ -950,7 +953,7 @@ with open(credible_interval_file, "w", newline="") as f:
         ]
     )
 
-for it in range(5):  # 5 iterations with different learning rates
+for it in range(10):  # 5 iterations with different learning rates
 
     (
         elapsed_train_time_str,

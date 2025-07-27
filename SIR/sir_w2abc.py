@@ -15,7 +15,6 @@ from scipy.stats import beta
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
-from tqdm import tqdm
 import pickle
 import ot
 import scipy
@@ -35,14 +34,14 @@ true_ps = np.array([0.4, 0.15])
 true_ps_list = [0.4, 0.15]
 
 # parameters for reject sampling 
-reject_sampling_n_samples = 1000000
+reject_sampling_n_samples = 500000
 
 # File paths
 current_dir = os.getcwd()
 fig_folder = "w2abc_fig"
 os.makedirs(fig_folder, exist_ok=True)
-results_dir = os.path.join(current_dir, "w2abc_results")
-os.makedirs(results_dir, exist_ok=True)
+ps_folder = "w2abc_ps"
+os.makedirs(ps_folder, exist_ok=True)
 obs_data_path = os.path.join(current_dir, "data", "obs_xs.npy")
 obs_xs = np.load(obs_data_path)  # Shape: (n, d_x)
 x_target = obs_xs.reshape(T_steps,)  # Target observations for SIR model
@@ -58,6 +57,10 @@ for i in range(len(u_times)):
         tM[i, j] = np.abs(u_times[i] - v_times[j])
         tM = np.power(tM, 1)
 
+# color setting and upper labels
+truth_color = "#FF6B6B"
+est_color = "#4D96FF"
+upper_labels = ["\\theta_1", "\\theta_2"]
 
 # -----------------------------
 # SIR Model Definition
@@ -113,12 +116,16 @@ def sir_sampler(theta, T_steps):
     I = beta.rvs(1, 100, size=batch_size)  # Initial infected proportion
     S = 1 - I  # Initial susceptible proportion
     R = np.zeros_like(I)  # Initial recovered proportion
-    sigma = 0.1  # Observation noise standard deviation
+    sigma = 0.05  # Observation noise standard deviation
 
     I_new_obs_list = []
 
     for t in range(T_steps):
         I_new = lambda_ * S * I  # New infections
+
+        # overflow protection
+        I_new = np.where(I_new < S, I_new, S)
+
         S = S - I_new  # Update susceptible
         I = I + I_new - mu_ * I  # Update infected
         R = R + mu_ * I  # Update recovered
@@ -126,10 +133,11 @@ def sir_sampler(theta, T_steps):
         # Add observation noise
         white_noise = np.random.normal(0, sigma, size=batch_size)
         I_new_obs = (1 + white_noise) * I_new
+        I_new_obs = np.clip(I_new_obs, 0.0, 1.0)
 
         I_new_obs_list.append(I_new_obs)
 
-        sir_observation = np.array(I_new_obs_list).T
+    sir_observation = np.array(I_new_obs_list).T
 
     return sir_observation
 
@@ -246,6 +254,7 @@ def run_w2abc(it):
     wasserstein_p = 2  # order of wasserstein distance
     wasserstein_lambda = 2  # penalty coefficient for tfw2d
 
+
     prior = sir_prior()
     tfw2d = t_fast_wasserstein(wasserstein_p, wasserstein_lambda)
 
@@ -255,7 +264,7 @@ def run_w2abc(it):
     distances = np.array([
         tfw2d(obs,x_target) for obs in observation_sample
     ])  # Calculate distances
-    reject_sampling_threshold = np.quantile(distances, 0.01)  # 1% quantile as threshold
+    reject_sampling_threshold = np.quantile(distances, 0.001)  # 1% quantile as threshold
     print("Threshold for Wasserstein distance:", reject_sampling_threshold)
 
     # -----------------------------
@@ -275,6 +284,9 @@ def run_w2abc(it):
     end_time = time.time()
     elapsed_time_str = time.strftime("%H:%M:%S", time.gmtime(end_time - start_time))
 
+    # save wasserstein_theta
+    ps_path = os.path.join(ps_folder,f"w2abc_ps_{it}.npy")
+    np.save(ps_path, wasserstein_theta)
 
     # calculate bias
     w2theta_mean = np.mean(wasserstein_theta, axis=0)
@@ -283,28 +295,31 @@ def run_w2abc(it):
 
     # plot estimate posterior
     sns.set_style("whitegrid")
-    fig, axs = plt.subplots(1, 2, figsize=(12, 4))
+    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+
+
     x_limits = {
-        0: (0, 0.8),
+        0: (0, 0.6),
         1: (0, 0.3),
     }
-
     for j, ax in enumerate(axs):
         ax.set_xlim(x_limits[j])
         ax.set_xticks(np.linspace(x_limits[j][0], x_limits[j][1], 5))
 
-    for j in range(d_theta_universal):
+    for upper_label, j in zip(upper_labels, range(d_theta_universal)):
         sns.kdeplot(
             wasserstein_theta[:, j],
             ax=axs[j],
             label="W2ABC",
-            color="blue",
-            linewidth=1,
+            color=est_color,
+            linewidth=1.5,
             linestyle="-",
         )
+        axs[j].set_title(f"${upper_label}$", pad=15)
+        axs[j].set_ylabel("")
 
     for ax, true_p in zip(axs, true_ps_list):
-        ax.axvline(true_p, color="r", linestyle="--", linewidth=1)
+        ax.axvline(true_p, color=truth_color, linestyle="-", linewidth=1.5)
 
     # construct 95% credible interval for each parameter with empirical value Y0
     def credible_interval(Y0):
@@ -324,16 +339,14 @@ def run_w2abc(it):
     ci_length = high - low
     for i in range(d_theta_universal):
         # low, high = credible_interval(Y0)
-        axs[i].fill_betweenx(axs[i].get_ylim(), low[i], high[i], color="b", alpha=0.3)
-        axs[i].axvline(low[i], color="b", linestyle="--", linewidth=1)
-        axs[i].axvline(high[i], color="b", linestyle="--", linewidth=1)
-
-    # set substitle for each subfigure
-    axs[0].set_title("theta1")
-    axs[1].set_title("theta2")
+        axs[i].fill_betweenx(axs[i].get_ylim(), low[i], high[i], color=est_color, alpha=0.3)
+        axs[i].axvline(low[i], color=est_color, linestyle="--", linewidth=1.5)
+        axs[i].axvline(high[i], color=est_color, linestyle="--", linewidth=1.5)
 
     # save figure
-    plt.legend()
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=1)
+    plt.tight_layout(pad=3.0)
     graph_path = os.path.join(fig_folder, f"sir_w2abc_{it}.png")
     plt.savefig(graph_path)
     plt.close()

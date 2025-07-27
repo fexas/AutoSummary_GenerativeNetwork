@@ -1,0 +1,26 @@
+#!/bin/bash
+###Use queue (partition) q1
+####SBATCH -p x-gpu
+#SBATCH -A makchen -p gpu3090
+#SBATCH -N 1 -n 52 --gres=gpu:1
+#SBATCH --output=nn_output.log
+#SBATCH --error=nn_error.log
+### Use 1 nodes and 52 cores
+#####SBATCH -N 1
+### Enable email notificaitons when job begins and ends, uncomment if you need it
+#SBATCH --mail-user=rlico@connect.ust.hk #Update your email address
+#SBATCH --mail-type=begin
+#SBATCH --mail-type=end
+
+module load anaconda3
+
+eval "$(conda shell.bash hook)"
+
+conda activate tf_1213
+
+cd ${HOME}/predoc-project/aaa_toy_example_mmd
+export conda_env=${HOME}/anaconda3/envs/tf_1213
+export PATH=${conda_env}/bin:${HOME}/anaconda3/condabin:${PATH}
+export LD_LIBRARY_PATH=${conda_env}/lib
+
+python nn_50_copy.py

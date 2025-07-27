@@ -6,10 +6,7 @@ import os
 import numpy as np
 import tensorflow as tf
 import csv
-import tensorflow_probability as tfp
 from tensorflow import keras
-from tensorflow.keras import layers, regularizers
-from tensorflow.keras.models import Sequential
 import seaborn as sns
 import matplotlib.pyplot as plt
 from tensorflow.keras.layers import  LayerNormalization
@@ -23,15 +20,19 @@ d = 2  # dimension of parameter theta
 d_x = 1  # dimenision of x
 p = d  # dimension of summary statistics
 Q = 1  # number of draw from \exp{\frac{\Vert \theta_i - \theta_j \Vert^2}{w}} in first penalty
-batch_size = 256
 
 ## NN's parameters
 M = 50  # number of hat_theta_i to estimate MMD
 L = 20  # number of unit vector in  S^{d-1} to draw
 lambda_1 = 0  # coefficient for 1st penalty
 batch_size = 256
-Np = 20000  # number of estimate theta
 OPTIMIZER_DEFAULTS = {"global_clipnorm": 1.0}
+
+# color setting and upper labels
+truth_color = "#FF6B6B"
+est_color = "#4D96FF"
+refined_color = "#6BCB77"
+upper_labels = ["\\theta_1", "\\theta_2"]
 
 # file path
 current_dir = os.getcwd()
@@ -39,13 +40,14 @@ current_dir = os.getcwd()
 # 创建nn_fig文件夹
 fig_folder = "dnnabc_fig"
 os.makedirs(fig_folder, exist_ok=True)
+ps_folder = "dnnabc_ps"
+os.makedirs(ps_folder, exist_ok=True)
 
 
 ## DNNABC's parameters
 default_lr = 0.0005
 batch_size = 256
-Np = 20000  # number of estimate theta
-threshold = 0.25  # threshold for Approximate Bayesian Computation
+# threshold = 0.25  # threshold for Approximate Bayesian Computation
 
 file_path = os.path.join(current_dir, "data", "obs_xs.npy")
 obs_xs = np.load(file_path)  # (n, d_x)
@@ -72,18 +74,24 @@ def generate_observation(theta, T_steps):
     I = beta.rvs(1, 100, size=batch_size)  # 添加size参数
     S = 1 - I
     R = np.zeros_like(I)
-    sigma = 0.1
+    sigma = 0.05
 
     I_new_obs_list = []
 
     for t in range(T_steps):
-        I_new = lambda_ * S * I
-        S = S - I_new
-        I = I + I_new - mu_ * I
-        R = R + mu_ * I
-        white_noise = np.random.normal(0, sigma, size=batch_size)  # 批量生成噪声
-        I_new_obs = (1 + white_noise) * I_new
+        I_new = lambda_ * S * I  # New infections
 
+        # overflow protection
+        I_new = np.where(I_new < S, I_new, S)
+
+        S = S - I_new  # Update susceptible
+        I = I + I_new - mu_ * I  # Update infected
+        R = R + mu_ * I  # Update recovered
+
+        # Add observation noise
+        white_noise = np.random.normal(0, sigma, size=batch_size)
+        I_new_obs = (1 + white_noise) * I_new
+        I_new_obs = np.clip(I_new_obs, 0.0, 1.0)
         I_new_obs_list.append(I_new_obs)
 
     return np.array(I_new_obs_list).T
@@ -264,9 +272,19 @@ def run_experiments(it):
 
     # ABC_posterior
 
-    thresold = 0.25
+    ## determine threshold
+    N_ref = 5000
+    Theta_ref = prior(N_ref)
+    X_ref = generate_dataset(Theta_ref, T_steps)
+    X_ref = tf.convert_to_tensor(X_ref, dtype=tf.float32)
+    X_ref = tf.reshape(X_ref, (N_ref, n, d_x))
+    TX_ref = dnnabc.predict(X_ref)
+    TX_diff_ref = TX_ref - dnnabc.predict(x_target)
+    TX_diff_ref = tf.reduce_sum(TX_diff_ref**2, axis=-1)
+    threshold = np.quantile(TX_diff_ref.numpy(),0.01)
+
     N_simulation = 1000
-    iter_num = 400
+    iter_num = 500
 
     for i in range(iter_num):
 
@@ -287,15 +305,16 @@ def run_experiments(it):
             mse_ = tf.concat([mse_, mse], axis=0)
             Theta_candidate_ = tf.concat([Theta_candidate_, Theta_candidate], axis=0)
 
-    # 测试一下仅接受前0.1%的样本拟合出来是什么结果
-    mse_threshold = tf.sort(mse_)[int(0.001 * N_simulation * iter_num)]
-    threshold = np.array(mse_threshold)
-
     idx = tf.where(mse_ < threshold)
     idx = tf.squeeze(idx, axis=1)
 
     Theta_accp = tf.gather(Theta_candidate_, idx)
     accp_rate = idx.shape[0] / (N_simulation * iter_num)
+
+    # save result
+    ps_path = os.path.join(ps_folder,f"sir_dnnabc_{it}.npy")
+    np.save(ps_path, Theta_accp.numpy())
+
     # calculate bias
     true_ps_tf = tf.convert_to_tensor(true_ps, dtype=tf.float32)
     Theta_accp_mean = tf.reduce_mean(Theta_accp, axis=0)
@@ -319,57 +338,55 @@ def run_experiments(it):
     # 绘图
 
     sns.set_style("whitegrid")
-
+    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
     true_ps = [0.4, 0.15]
 
-    # 创建一个图形
-    fig, axs = plt.subplots(1, 2, figsize=(12, 4))
-
     x_limits = {
-        0: (0, 0.8),
+        0: (0, 0.6),
         1: (0, 0.3),
     }
-
-    # 设置每个子图的x轴范围
     for j, ax in enumerate(axs):
         ax.set_xlim(x_limits[j])
         ax.set_xticks(np.linspace(x_limits[j][0], x_limits[j][1], 5))
 
-    # 为每个分量绘制 KDE 图
-    for i in range(d):
+    for upper_label, j in zip(upper_labels, range(d)):
         sns.kdeplot(
-            Theta_accp[:, i],
-            ax=axs[i],
+            Theta_accp[:, j],
+            ax=axs[j],
             fill=False,
             label="DNNABC",
-            color="blue",
-            linewidth=1,
+            color=est_color,
+            linewidth=1.5,
             linestyle="-",
         )
-        axs[i].axvline(true_ps[i], color="r", linestyle="--", linewidth=1)
+        axs[j].set_title(f"${upper_label}$", pad=15)
+        axs[j].set_ylabel("")
+
+    for ax, true_p in zip(axs, true_ps):
+        ax.axvline(true_p, color=truth_color, linestyle="-", linewidth=1.5)
 
     low, high = credible_interval(Theta_accp)
+    ci_length = high - low
     for i in range(d):
         # low, high = credible_interval(Y0)
         axs[i].fill_betweenx(
             axs[i].get_ylim(), low[i], high[i], color="b", alpha=0.3
         )  # 填充带状区域
-        axs[i].axvline(low[i], color="b", linestyle="--", linewidth=1)
-        axs[i].axvline(high[i], color="b", linestyle="--", linewidth=1)
+        axs[i].axvline(low[i], color=est_color, linestyle="--", linewidth=1.5)
+        axs[i].axvline(high[i], color=est_color, linestyle="--", linewidth=1.5)
 
-    # 设置每个子图的标题
-    axs[0].set_title("theta1")
-    axs[1].set_title("theta2")
 
     # save figure
-    plt.legend()
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=1)
+    plt.tight_layout(pad=3.0)
     plt.savefig(os.path.join(fig_folder, f"sir_dnnabc_{it}.png"))
     plt.close()
 
-    return accp_rate, bias, bias_vec, low, high, mse_threshold
+    return accp_rate, bias, bias_vec, low, high, ci_length
 
 
-output_file = f"sir_dnnabc_results_1.csv"
+output_file = f"sir_dnnabc_result1.csv"
 with open(output_file, "w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(
@@ -380,7 +397,8 @@ with open(output_file, "w", newline="") as f:
             "bias",
             "bias_1",
             "bias_2",
-            "mse_threshold",
+            "ci_length_1",
+            "ci_length_2",
             "low_1",
             "high_1",
             "low_2",
@@ -392,7 +410,7 @@ with open(output_file, "w", newline="") as f:
 for it in range(10):
 
     start_time = time.time()
-    accp_rate, bias, bias_vec, low, high, mse_threshold = run_experiments(it)
+    accp_rate, bias, bias_vec, low, high, ci_length = run_experiments(it)
     end_time = time.time()
 
     elapsed_time = end_time - start_time
@@ -408,7 +426,7 @@ for it in range(10):
                 bias.numpy(),
                 bias_vec[0].numpy(),
                 bias_vec[1].numpy(),
-                mse_threshold.numpy(),
+                *ci_length,
                 low[0],
                 high[0],
                 low[1],

@@ -29,26 +29,48 @@ d_x = 2  # dimenision of x
 p = 9  # dimension of summary statistics
 Q = 1  # number of draw from \exp{\frac{\Vert \theta_i - \theta_j \Vert^2}{w}} in first penalty
 batch_size = 256
+
+# params for lv model
 T_count = 15
 x0 = 10
 y0 = 5
-p_lower = -2
-p_upper = 2
-p_lower_list = np.array([-2, -2, -2, -2])
-p_higher_list = np.array([2, 2, 2, 2])
+p_lower = -5.0
+p_upper = 2.0
+p_lower_list = np.array([p_lower] * d)
+p_upper_list = np.array([p_upper] * d)
+true_ps = np.log(np.array([1, 0.01, 0.5, 0.01]))
+true_ps_tf = tf.convert_to_tensor(true_ps, dtype=tf.float32)
+true_ps_ls = true_ps.tolist()
+
+# tM matrix for wasserstein distance
+u_times= np.arange(n_points) + 1
+v_times = np.arange(n_points) + 1
+u_times = u_times.astype(np.float32)
+v_times = v_times.astype(np.float32)
+tM = np.zeros((len(u_times), len(v_times)))
+for i in range(len(u_times)):
+    for j in range(len(v_times)):
+        tM[i, j] = np.abs(u_times[i] - v_times[j])
+        tM = np.power(tM, 1)
+
+# params for w2abc
 rng = np.random
-N_proposal = 100000
-true_ps = np.array([1, 1, 1, 1])
+N_proposal = 500000
+
+# color setting
+truth_color = "#FF6B6B"
+est_color = "#4D96FF"
+refined_color = "#6BCB77"
+upper_labels=["\\theta_1","\\theta_2","\\theta_3","\\theta_4"]
 
 # File paths
 current_dir = os.getcwd()
 fig_folder = "w2abc_fig"
 os.makedirs(fig_folder, exist_ok=True)
-results_dir = os.path.join(current_dir, "w2abc_results")
-os.makedirs(results_dir, exist_ok=True)
+ps_folder = "w2abc_ps"
+os.makedirs(ps_folder, exist_ok=True)
 obs_data_path = os.path.join(current_dir, "data", "obs_xs.npy")
 obs_xs = np.load(obs_data_path)  # Shape: (n, d_x)
-rng = np.random
 
 
 # -----------------------------
@@ -61,7 +83,7 @@ class lv_prior:
 
     def random(self, batch_size):
         """Generate samples from the prior distribution for Lotka-Volterra model parameters."""
-        theta = np.random.uniform(p_lower_list, p_higher_list, size=(batch_size, 4))
+        theta = np.random.uniform(p_lower_list, p_upper_list, size=(batch_size, 4))
         return theta
 
 def lotka_volterra_forward(params, n_obs, T_span, x0, y0):
@@ -88,11 +110,11 @@ def lotka_volterra_forward(params, n_obs, T_span, x0, y0):
         )
 
     # parameter for the Lotka-Volterra model
-    t_steps = 400
+    t_steps = n_obs
     t_span = [0, T_span]
     alpha, beta, gamma, delta = np.exp(params)
     initial_state = [x0, y0]
-    noise_scale = 0.1
+    noise_scale = 0.01
 
     x, y, t = ecology_model(
         alpha,
@@ -104,21 +126,12 @@ def lotka_volterra_forward(params, n_obs, T_span, x0, y0):
         initial_state=initial_state,
     )
 
-    # Add Gaussian noise to observations
-    noisy_x = rng.normal(x, noise_scale)
-    noisy_y = rng.normal(y, noise_scale)
-
-    step_indices = np.arange(0, t_steps, 1)
-    observed_indices = np.sort(rng.choice(step_indices, n_obs, replace=False))
+    # add noise to the time series
+    x += rng.normal(0, noise_scale, size=x.shape)
+    y += rng.normal(0, noise_scale, size=y.shape)
 
     # concatenate the observed time series of x and y
-    observed_X = np.concatenate(
-        (
-            noisy_x[observed_indices].reshape(-1, 1),
-            noisy_y[observed_indices].reshape(-1, 1),
-        ),
-        axis=1,
-    )
+    observed_X = np.concatenate((x.reshape(-1, 1), y.reshape(-1, 1)), axis=1)
 
     return observed_X
 
@@ -175,21 +188,6 @@ def t_fast_wasserstein(p, penalty_lambda):
                         for j in range(len(v_values)):
                             M[i, j] = np.abs(u_values[i] - v_values[j])
                     M = np.power(M, 1)
-
-                # time penalty matrix
-                u_times = np.arange(u_values.shape[0]) + 1
-                v_times = np.arange(v_values.shape[0]) + 1
-                u_times = u_times.astype(np.float32)
-                v_times = v_times.astype(np.float32)
-
-                if np.array(u_times)[0].shape != ():
-                    tM = np.power(ot.dist(u_times, v_times, metric="euclidean"), p)
-                else:
-                    tM = np.zeros((len(u_times), len(v_times)))
-                    for i in range(len(u_times)):
-                        for j in range(len(v_times)):
-                            tM[i, j] = np.abs(u_times[i] - v_times[j])
-                            tM = np.power(tM, 1)
 
                 M = M + penalty_lambda * tM
                 M = np.power(M, p)
@@ -262,7 +260,7 @@ def run_w2abc(it):
     tfw2d = t_fast_wasserstein(wasserstein_p, wasserstein_lambda)
 
     # determine threshold
-    theta_sample = prior.random(500)
+    theta_sample = prior.random(5000)
     observation_sample = lv_sampler(theta_sample)
     distances = np.array([tfw2d(obs, x_target) for obs in observation_sample])
     threshold = np.quantile(distances, 0.01)  # 0.1% quantile as threshold
@@ -280,6 +278,10 @@ def run_w2abc(it):
     time_end = time.time()
     time_taken = time_end - time_start
     elapsed_time_str = time.strftime("%H:%M:%S", time.gmtime(time_taken))
+
+    # save wasserstein_theta
+    ps_path = os.path.join(ps_folder,f"w2abc_ps_{it}.npy")
+    np.save(ps_path, wasserstein_theta)
 
     # calculate bias
     w2theta_mean = np.mean(wasserstein_theta, axis=0)
@@ -302,26 +304,36 @@ def run_w2abc(it):
         low = Y0_temp[int(0.025 * Np_temp), :]
         high = Y0_temp[int(0.975 * Np_temp), :]
         return low, high
-    
+
     sns.set_style("whitegrid")
+    fig, axs = plt.subplots(1, 4, figsize=(20, 6))
 
-    # 创建一个图形
-    fig, axs = plt.subplots(1, 4, figsize=(20, 4))
-
+    x_limits = [
+        [-0.4, 0.4],  # theta_0
+        [-5.2, -4.0],  # theta_1
+        [-0.85, -0.55],  # theta_2
+        [-5.2, -4.0],  # theta_3
+    ]
     for j, ax in enumerate(axs):
+        ax.set_xlim(x_limits[j])
+        ax.set_xticks(np.linspace(x_limits[j][0], x_limits[j][1], 5))
+
+    for upper_label, j in zip(upper_labels, range(d)):
         sns.kdeplot(
             wasserstein_theta[:, j],
-            ax=ax,
+            ax=axs[j],
             fill=False,
             label="W2ABC",
-            color="blue",
+            color=est_color,
             linestyle="-",
-            linewidth=1,
+            linewidth=1.5,
         )
+        axs[j].set_title(f"${upper_label}$", pad=15)
+        axs[j].set_ylabel("")
 
     # 在每个子图上添加竖线表示真实参数的位置
-    for ax, true_p in zip(axs, true_ps):
-        ax.axvline(true_p, color="r", linestyle="--", linewidth=1)
+    for ax, true_p in zip(axs, true_ps_ls):
+        ax.axvline(true_p, color=truth_color, linestyle="-", linewidth=1.5)
 
     # 在每个子图上绘制 95% credible interval
     low, high = credible_interval(wasserstein_theta)
@@ -329,20 +341,14 @@ def run_w2abc(it):
     for i in range(d):
         # low, high = credible_interval(Y0)
         axs[i].fill_betweenx(
-            axs[i].get_ylim(), low[i], high[i], color="b", alpha=0.3
+            axs[i].get_ylim(), low[i], high[i], color=est_color, alpha=0.3
         )  # 填充带状区域
-        axs[i].axvline(low[i], color="b", linestyle="--", linewidth=1)
-        axs[i].axvline(high[i], color="b", linestyle="--", linewidth=1)
+        axs[i].axvline(low[i], color=est_color, linestyle="--", linewidth=1.5)
+        axs[i].axvline(high[i], color=est_color, linestyle="--", linewidth=1.5)
 
-    # 设置每个子图的标题
-    axs[0].set_title("theta1")
-    axs[1].set_title("theta2")
-    axs[2].set_title("theta3")
-    axs[3].set_title("theta4")
-
-    # 保存图片
-    plt.legend()
-    plt.tight_layout()
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=1)
+    plt.tight_layout(pad=3.0)
     fig_path = os.path.join(fig_folder, f"w2abc_{it}.png")
     plt.savefig(fig_path, dpi=300)
     plt.close(fig)

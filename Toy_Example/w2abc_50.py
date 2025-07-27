@@ -13,7 +13,6 @@ from math import *
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
-from tqdm import tqdm
 import pickle
 import ot
 import scipy
@@ -29,14 +28,20 @@ N = 12800  #  data_size
 n = 50  # sample_size
 d = 5  # dimension of parameter theta
 d_x = 3  # dimenision of x
-N_proposal = 1000000 # number of particles for proposal distribution
+N_proposal = 500000 # number of particles for proposal distribution
+
+# color setting
+truth_color = "#FF6B6B"
+est_color = "#4D96FF"
+refined_color = "#6BCB77"
+upper_labels=["\\theta_1","\\theta_2","\\theta_3","\\theta_4","\\theta_5"]
 
 # File paths
 current_dir = os.getcwd()
 fig_folder = "w2abc_fig"
 os.makedirs(fig_folder, exist_ok=True)
-results_dir = os.path.join(current_dir, "w2abc_results")
-os.makedirs(results_dir, exist_ok=True)
+ps_folder = "w2abc_ps"
+os.makedirs(ps_folder, exist_ok=True)
 obs_data_path = os.path.join(current_dir, "data", "obs_xs.npy")
 obs_xs = np.load(obs_data_path)  # Shape: (n, d_x)
 posterior_data_path = os.path.join(current_dir, "data", "ps.npy")
@@ -374,10 +379,10 @@ def run_w2abc(it):
     fw2d = fast_wasserstein(2)
 
     # determine threshold
-    theta_sample = prior.random(10000)
+    theta_sample = prior.random(5000)
     observation_sample = toy_sampler(theta_sample)
     distances = np.array([fw2d(obs, x_target) for obs in observation_sample])
-    threshold = np.quantile(distances, 0.001)  # 0.1% quantile as threshold
+    threshold = np.quantile(distances, 0.01)  # 0.1% quantile as threshold
     print("Threshold for Wasserstein distance:", threshold)
 
     time_start = time.time()
@@ -393,6 +398,9 @@ def run_w2abc(it):
     time_taken = time_end - time_start
     elapsed_time_str = time.strftime("%H:%M:%S", time.gmtime(time_taken))
 
+    w2_theta_path = os.path.join(ps_folder,f"w2_ps_{it}.npy")
+    np.save(w2_theta_path,wasserstein_theta)
+
     mmd_w2 = compute_mmd(
         tf.convert_to_tensor(wasserstein_theta, dtype=tf.float32),
         tf.convert_to_tensor(ps, dtype=tf.float32),
@@ -400,6 +408,9 @@ def run_w2abc(it):
     )
 
     sns.set_style("whitegrid")
+    fig, axs = plt.subplots(1, 5, figsize=(25, 6))
+    true_ps = [1, 1, -1.0, -0.9, 0.6]
+
     # 定义每个theta_i对应的x轴范围
     x_limits = [
         [0.7, 1.3],  # theta_0
@@ -409,43 +420,35 @@ def run_w2abc(it):
         [0, 1.2],  # theta_4
     ]
 
-    # 创建一个图形
-    fig, axs = plt.subplots(1, 5, figsize=(25, 4))
-
     for j, ax in enumerate(axs):
         ax.set_xlim(x_limits[j])
         ax.set_xticks(np.linspace(x_limits[j][0], x_limits[j][1], 5))
 
-    for j, ax in enumerate(axs):
+    for upper_label, j in zip(upper_labels, range(d)):
         sns.kdeplot(
             ps[:, j],
-            ax=ax,
+            ax=axs[j],
             fill=False,
             label="posterior",
-            color="red",
+            color=truth_color,
             linestyle="-.",
-            linewidth=1,
+            linewidth=1.5,
         )
         sns.kdeplot(
             wasserstein_theta[:, j],
-            ax=ax,
-            fill=False,
+            ax=axs[j],
             label="W2ABC",
-            color="blue",
+            color=est_color,
+            linewidth=1.5,
             linestyle="-",
-            linewidth=1,
         )
+        axs[j].set_title(f"${upper_label}$", pad=15)
+        axs[j].set_ylabel("")
 
-    # 设置每个子图的标题
-    axs[0].set_title("theta1")
-    axs[1].set_title("theta2")
-    axs[2].set_title("theta3")
-    axs[3].set_title("theta4")
-    axs[4].set_title("theta5")
-
-    # 保存图片
-    plt.legend()
-    plt.tight_layout()
+    # save figure
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=2)
+    plt.tight_layout(pad=3.0)
     fig_path = os.path.join(fig_folder, f"w2abc_{it}.png")
     plt.savefig(fig_path, dpi=300)
     plt.close(fig)
