@@ -1,3 +1,4 @@
+
 import os
 import scipy
 import numpy as np
@@ -391,12 +392,14 @@ def mcmc(N_proposal, burn_in_steps):
 
     # Get MCMC samples after burn-in
     Theta_mcmc = tf.concat(Theta_seq[burn_in_steps: burn_in_steps + 1], axis=0)
+    accp_rate = accp / (N_proposal * (burn_in_steps + 1))
+    print(f"Acceptance rate: {accp_rate:.4f}")
 
     return Theta_mcmc, accp
 
 #    metropolis algorithm
 N_proposal = 5000
-burn_in_steps = 2500
+burn_in_steps = 7500
 Theta_seq, accp = mcmc(N_proposal, burn_in_steps)
 ps = Theta_seq.numpy()
 
@@ -425,12 +428,19 @@ sns.set_style("whitegrid")
 fig, axs = plt.subplots(1, 5, figsize=(25, 4))
 
 # 定义每个theta_i对应的x轴范围
+# x_limits = [
+#     [0.7, 1.3],  # theta_0
+#     [0.6, 1.4],  # theta_1
+#     [-1.5, 1.5],  # theta_2
+#     [-1.5, 1.5],  # theta_3
+#     [0, 1.2],  # theta_4
+# ]
 x_limits = [
-    [0.7, 1.3],  # theta_0
-    [0.6, 1.4],  # theta_1
-    [-1.5, 1.5],  # theta_2
-    [-1.5, 1.5],  # theta_3
-    [0, 1.2],  # theta_4
+    [-3.0, 3.0],  # theta_0
+    [-3.0, 3.0],  # theta_1
+    [-3.0, 3.0],  # theta_2
+    [-3.0, 3.0],  # theta_3
+    [-3.0, 3.0],  # theta_4
 ]
 
 for j, ax in enumerate(axs):
@@ -442,7 +452,7 @@ for j, ax in enumerate(axs):
         ps[:, j],
         ax=ax,
         fill=False,
-        label="Truth",
+        label="posterior",
         color="red",
         linestyle="--",
         linewidth=1,
@@ -488,13 +498,6 @@ np.save(os.path.join(data_folder, f"obs_xs.npy"), obs_xs)
 for it in range(1):
 
     print("it: ", it)
-
-    N = 12800  #  data_size
-    n = 25  # sample_size
-    d = 5  # dimension of parameter theta
-
-    d_x = 3  # dimenision of x
-    h = 1 / n  # bandwidth
 
     # generate training set
     prior = bf.simulation.Prior(prior_fun=_Prior)

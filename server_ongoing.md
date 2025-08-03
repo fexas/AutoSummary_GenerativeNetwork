@@ -2,9 +2,9 @@
 
 ## HPC3
 
-1. sir:
-2. lotka volterra: dnn
-3. toy example: dnnabc, bf
+1. toy example 25:
+2. toy example 100:w2
+3. toy example: dnnabc, w2 replicate
 
 ## Question Mark
 
@@ -20,10 +20,10 @@
 ## Record
 
 ```aiignore
- JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
-           1555595   gpu3090  sjob.bf    rlico  R       0:03      1 hhnode-ib-191
-           1555594   gpu3090 sjob.nn_    rlico  R       2:38      1 hhnode-ib-190
-           1555590   gpu3090 sjob.nn_    rlico  R       8:30      1 hhnode-ib-189
+   JOBID PARTITION     NAME     USER ST       TIME  NODES NODELIST(REASON)
+           1562088   gpu3090 sjob.w2_lv    rlico  R       0:45      1 hhnode-ib-188
+           1562086   gpu3090 sjob.w25    rlico  R       5:46      1 hhnode-ib-187
+           1562084   gpu3090 sjob.w10    rlico  R      12:13      1 hhn
 ```
 
 ## What to do for tommorrow
@@ -35,3 +35,9 @@ slow down to speed up
    2. current epsilon threshold is too large, try 0.035
 2. sbatch w2abc of toy
 3. transfer toy example from 50 to 25 and 100
+
+## Issue
+
+1. shift in SIR
+2. accept rate in w2abc and dnnabc
+3. quan1 setting in toy

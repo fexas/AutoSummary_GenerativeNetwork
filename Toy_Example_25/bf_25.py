@@ -30,12 +30,12 @@ epoch = 500
 # MCMC Parameters Setup
 N_proposal = 1000 # 3000
 n_samples = 100
-burn_in = 249
-thin = 10
+burn_in = 350 # 250 #249
+thin = 20 # 10
 Ns = 5
 proposed_std = 0.05
 quantile_level = 0.001 # 0.0025  # 0.001 # quantile level for bandwidth estimation
-epsilon_upper_bound = 0.035 # 0.05 # 0.01
+epsilon_upper_bound = 0.15 # 0.05 # 0.01
 
 # color setting
 truth_color = "#FF6B6B"
@@ -388,30 +388,53 @@ def _Prior(d=4):
 # compute MMD
 
 
-def compute_kernel(x, y, h_mmd):
-    x_size = tf.shape(x)[0]
-    y_size = tf.shape(y)[0]
-    dim = tf.shape(x)[1]
+# def compute_kernel(x, y, h_mmd):
+#     x_size = tf.shape(x)[0]
+#     y_size = tf.shape(y)[0]
+#     dim = tf.shape(x)[1]
 
-    tiled_x = tf.tile(
-        tf.reshape(x, tf.stack([x_size, 1, dim])), tf.stack([1, y_size, 1])
-    )
-    tiled_y = tf.tile(
-        tf.reshape(y, tf.stack([1, y_size, dim])), tf.stack([x_size, 1, 1])
-    )
-    return tf.exp(-tf.reduce_sum(tf.square(tiled_x - tiled_y), axis=2) / (2 * h_mmd))
+#     tiled_x = tf.tile(
+#         tf.reshape(x, tf.stack([x_size, 1, dim])), tf.stack([1, y_size, 1])
+#     )
+#     tiled_y = tf.tile(
+#         tf.reshape(y, tf.stack([1, y_size, dim])), tf.stack([x_size, 1, 1])
+#     )
+#     return tf.exp(-tf.reduce_sum(tf.square(tiled_x - tiled_y), axis=2) / (2 * h_mmd))
 
+
+# def compute_mmd(x, y, h_mmd):
+#     x_kernel = compute_kernel(x, x, h_mmd)
+#     y_kernel = compute_kernel(y, y, h_mmd)
+#     xy_kernel = compute_kernel(x, y, h_mmd)
+#     return (
+#         tf.reduce_mean(x_kernel)
+#         + tf.reduce_mean(y_kernel)
+#         - 2 * tf.reduce_mean(xy_kernel)
+#     )
 
 def compute_mmd(x, y, h_mmd):
-    x_kernel = compute_kernel(x, x, h_mmd)
-    y_kernel = compute_kernel(y, y, h_mmd)
-    xy_kernel = compute_kernel(x, y, h_mmd)
-    return (
-        tf.reduce_mean(x_kernel)
-        + tf.reduce_mean(y_kernel)
-        - 2 * tf.reduce_mean(xy_kernel)
-    )
+    x = tf.convert_to_tensor(x, dtype=tf.float32)
+    y = tf.convert_to_tensor(y, dtype=tf.float32)
+    
 
+    xx = tf.matmul(x, x, transpose_b=True)
+    xy = tf.matmul(x, y, transpose_b=True)
+    yy = tf.matmul(y, y, transpose_b=True)
+
+    rx = tf.reduce_sum(tf.square(x), axis=-1, keepdims=True)
+    ry = tf.reduce_sum(tf.square(y), axis=-1, keepdims=True)
+
+    se_xx = rx - 2 * xx + tf.transpose(rx)
+    se_xy = rx - 2 * xy + tf.transpose(ry)
+    se_yy = ry - 2 * yy + tf.transpose(ry)
+
+    kernel_xx = tf.exp(-se_xx / (2 * h_mmd))
+    kernel_xy = tf.exp(-se_xy / (2 * h_mmd))
+    kernel_yy = tf.exp(-se_yy / (2 * h_mmd))
+
+    mmd = tf.reduce_mean(kernel_xx) + tf.reduce_mean(kernel_yy) - 2 * tf.reduce_mean(kernel_xy)
+
+    return mmd
 
 # bayesflow
 def kronecker_product(mat1, mat2):
@@ -543,12 +566,20 @@ def run_experiment(it):
     true_ps = [1, 1, -1.0, -0.9, 0.6]
 
     # 定义每个theta_i对应的x轴范围
+    # x_limits = [
+    #     [0.7, 1.3],  # theta_0
+    #     [0.6, 1.4],  # theta_1
+    #     [-1.5, 1.5],  # theta_2
+    #     [-1.5, 1.5],  # theta_3
+    #     [0, 1.2],  # theta_4
+    # ]
+    
     x_limits = [
-        [0.7, 1.3],  # theta_0
-        [0.6, 1.4],  # theta_1
-        [-1.5, 1.5],  # theta_2
-        [-1.5, 1.5],  # theta_3
-        [0, 1.2],  # theta_4
+        [0.5, 1.5],  # theta_0
+        [0.3, 1.7],  # theta_1
+        [-2.0, 2.0],  # theta_2
+        [-2.0, 2.0],  # theta_3
+        [-0.3, 1.5],  # theta_4
     ]
 
     for j, ax in enumerate(axs):
@@ -937,12 +968,20 @@ def run_experiment(it):
     true_ps = [1, 1, -1.0, -0.9, 0.6]
 
     # 定义每个theta_i对应的x轴范围
+    # x_limits = [
+    #     [0.7, 1.3],  # theta_0
+    #     [0.6, 1.4],  # theta_1
+    #     [-1.5, 1.5],  # theta_2
+    #     [-1.5, 1.5],  # theta_3
+    #     [0, 1.2],  # theta_4
+    # ]
+
     x_limits = [
-        [0.7, 1.3],  # theta_0
-        [0.6, 1.4],  # theta_1
-        [-1.5, 1.5],  # theta_2
-        [-1.5, 1.5],  # theta_3
-        [0, 1.2],  # theta_4
+        [0.5, 1.5],  # theta_0
+        [0.3, 1.7],  # theta_1
+        [-2.0, 2.0],  # theta_2
+        [-2.0, 2.0],  # theta_3
+        [-0.3, 1.5],  # theta_4
     ]
 
     for j, ax in enumerate(axs):

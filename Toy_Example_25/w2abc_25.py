@@ -24,11 +24,10 @@ import sys
 # Configuration Parameters
 # -----------------------------
 # parameters for data
-N = 12800  #  data_size
 n = 25  # sample_size
 d = 5  # dimension of parameter theta
 d_x = 3  # dimenision of x
-N_proposal = 500000 # number of particles for proposal distribution
+N_proposal = 5000000 # number of particles for proposal distribution
 
 # color setting
 truth_color = "#FF6B6B"
@@ -333,29 +332,53 @@ def reject_sampling(y_true, y_sampler, prior, distance, n_samples, threshold):
 # -----------------------------
 
 
-def compute_kernel(x, y, h_mmd):
-    x_size = tf.shape(x)[0]
-    y_size = tf.shape(y)[0]
-    dim = tf.shape(x)[1]
+# def compute_kernel(x, y, h_mmd):
+#     x_size = tf.shape(x)[0]
+#     y_size = tf.shape(y)[0]
+#     dim = tf.shape(x)[1]
 
-    tiled_x = tf.tile(
-        tf.reshape(x, tf.stack([x_size, 1, dim])), tf.stack([1, y_size, 1])
-    )
-    tiled_y = tf.tile(
-        tf.reshape(y, tf.stack([1, y_size, dim])), tf.stack([x_size, 1, 1])
-    )
-    return tf.exp(-tf.reduce_sum(tf.square(tiled_x - tiled_y), axis=2) / (2 * h_mmd))
+#     tiled_x = tf.tile(
+#         tf.reshape(x, tf.stack([x_size, 1, dim])), tf.stack([1, y_size, 1])
+#     )
+#     tiled_y = tf.tile(
+#         tf.reshape(y, tf.stack([1, y_size, dim])), tf.stack([x_size, 1, 1])
+#     )
+#     return tf.exp(-tf.reduce_sum(tf.square(tiled_x - tiled_y), axis=2) / (2 * h_mmd))
 
+
+# def compute_mmd(x, y, h_mmd):
+#     x_kernel = compute_kernel(x, x, h_mmd)
+#     y_kernel = compute_kernel(y, y, h_mmd)
+#     xy_kernel = compute_kernel(x, y, h_mmd)
+#     return (
+#         tf.reduce_mean(x_kernel)
+#         + tf.reduce_mean(y_kernel)
+#         - 2 * tf.reduce_mean(xy_kernel)
+#     )
 
 def compute_mmd(x, y, h_mmd):
-    x_kernel = compute_kernel(x, x, h_mmd)
-    y_kernel = compute_kernel(y, y, h_mmd)
-    xy_kernel = compute_kernel(x, y, h_mmd)
-    return (
-        tf.reduce_mean(x_kernel)
-        + tf.reduce_mean(y_kernel)
-        - 2 * tf.reduce_mean(xy_kernel)
-    )
+    x = tf.convert_to_tensor(x, dtype=tf.float32)
+    y = tf.convert_to_tensor(y, dtype=tf.float32)
+    
+
+    xx = tf.matmul(x, x, transpose_b=True)
+    xy = tf.matmul(x, y, transpose_b=True)
+    yy = tf.matmul(y, y, transpose_b=True)
+
+    rx = tf.reduce_sum(tf.square(x), axis=-1, keepdims=True)
+    ry = tf.reduce_sum(tf.square(y), axis=-1, keepdims=True)
+
+    se_xx = rx - 2 * xx + tf.transpose(rx)
+    se_xy = rx - 2 * xy + tf.transpose(ry)
+    se_yy = ry - 2 * yy + tf.transpose(ry)
+
+    kernel_xx = tf.exp(-se_xx / (2 * h_mmd))
+    kernel_xy = tf.exp(-se_xy / (2 * h_mmd))
+    kernel_yy = tf.exp(-se_yy / (2 * h_mmd))
+
+    mmd = tf.reduce_mean(kernel_xx) + tf.reduce_mean(kernel_yy) - 2 * tf.reduce_mean(kernel_xy)
+
+    return mmd
 
 
 # -----------------------------
@@ -382,7 +405,7 @@ def run_w2abc(it):
     theta_sample = prior.random(5000)
     observation_sample = toy_sampler(theta_sample)
     distances = np.array([fw2d(obs, x_target) for obs in observation_sample])
-    threshold = np.quantile(distances, 0.01)  # 0.1% quantile as threshold
+    threshold = np.quantile(distances, 0.001)  # 0.1% quantile as threshold
     print("Threshold for Wasserstein distance:", threshold)
 
     time_start = time.time()
@@ -460,7 +483,7 @@ def run_w2abc(it):
     )
 
 
-csv_file = "w2_50_result1.csv"
+csv_file = f"w2_{n}_result1.csv"
 
 with open(csv_file, "w", newline="") as f:
     writer = csv.writer(f)

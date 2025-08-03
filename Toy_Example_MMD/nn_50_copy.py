@@ -29,7 +29,7 @@ L = 20  # number of unit vector in  S^{d-1} to draw
 lambda_1 = 0  # coefficient for 1st penalty
 batch_size = 256 # 128 # 256 
 Np = 5000  # number of estimate theta
-default_lr = 0.001 # 0.001 # 0.001 # 0.0005
+default_lr = 0.0005 # 0.001 # 0.001 # 0.0005
 epochs = 500
 
 # MCMC Parameters Setup
@@ -534,12 +534,13 @@ class EquivariantModule(tf.keras.Model):
 
 
 # class for NN
+# class for NN
 class NN(keras.Model):
     def __init__(self, G, T, **kwargs):
         super(NN, self).__init__(**kwargs)
         self.G = G
         self.T = T
-        self.total_loss_tracker = keras.metrics.Mean(name="total_loss")  # 需修改
+        self.total_loss_tracker = keras.metrics.Mean(name="total_loss")
 
     @property
     def metrics(self):
@@ -553,10 +554,8 @@ class NN(keras.Model):
             Gtheta: [batch_size, M, d]
         """
 
-        bandwidth = tf.constant([1 / n, 4 / n, 9 / n, 16 / n, 25 / n], "float32")
+        bandwidth = 5 * tf.constant([1 / n, 4 / n, 9 / n, 16 / n, 25 / n], "float32")
         bandwidth = tf.reshape(bandwidth, (bandwidth.shape[0], 1, 1, 1))
-        coefficient = bandwidth ** (d / 2)
-        coefficient = 1 / coefficient
 
         theta_ = tf.expand_dims(theta, 1)  # (N,1,d)
 
@@ -569,10 +568,10 @@ class NN(keras.Model):
         SE_gg = rg - 2 * gg + tf.transpose(rg, perm=[0, 2, 1])  # (N,M,M)
         SE_gt = rg - 2 * gt + tf.transpose(rt, perm=[0, 2, 1])  # (N,M,1)
 
-        K_gg = tf.exp(-0.5 * tf.expand_dims(SE_gg, axis=0) / bandwidth) * coefficient
-        K_gt = tf.exp(-0.5 * tf.expand_dims(SE_gt, axis=0) / bandwidth) * coefficient
+        K_gg = tf.exp(-0.5 * tf.expand_dims(SE_gg, axis=0) / bandwidth)
+        K_gt = tf.exp(-0.5 * tf.expand_dims(SE_gt, axis=0) / bandwidth)
 
-        mmd = tf.reduce_mean(K_gg) * M / (M-1) - 2 * tf.reduce_mean(K_gt)
+        mmd = tf.reduce_mean(K_gg) - 2 * tf.reduce_mean(K_gt)
 
         return mmd
 
@@ -616,7 +615,7 @@ class NN(keras.Model):
         )
         loss_term2 = tf.reduce_mean(marginal_p)
 
-        slice_MMD_loss = loss_term1 * M /(M-1) - 2 * loss_term2
+        slice_MMD_loss = loss_term1 - 2 * loss_term2
 
         return slice_MMD_loss
 
@@ -625,7 +624,7 @@ class NN(keras.Model):
         # 8.25: 可以调用到全局变量，如batch_size,d,n
         data1 = tf.reshape(data, (batch_size, d + n * d_x + 1))
 
-        theta_ = data1[:, 0:d]
+        Theta_ = data1[:, 0:d]
         seg_X = data1[:, d : n * d_x + d]
         seg_X = tf.reshape(seg_X, (batch_size, n, d_x))
 
@@ -640,14 +639,13 @@ class NN(keras.Model):
             Gtheta = self.G(Z_and_TX_)
             Gtheta = tf.reshape(Gtheta, (batch_size, M, d))
 
-            loss = self.MMD(theta_, Gtheta)
+            loss = self.MMD(Theta_, Gtheta)
 
         grads = tape.gradient(loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
         self.total_loss_tracker.update_state(loss)
 
         return {"loss": self.total_loss_tracker.result()}
-
 
 def compute_kernel(x, y, h_mmd):
     x_size = tf.shape(x)[0]

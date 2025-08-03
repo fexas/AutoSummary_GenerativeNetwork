@@ -30,12 +30,12 @@ epoch = 500
 # MCMC Parameters Setup
 N_proposal = 1000 # 3000
 n_samples = 100
-burn_in = 249
-thin = 10
+burn_in = 250
+thin = 20
 Ns = 5
 proposed_std = 0.05
 quantile_level = 0.001 # 0.0025  # 0.001 # quantile level for bandwidth estimation
-epsilon_upper_bound = 0.035 # 0.05 # 0.01
+epsilon_upper_bound = 0.05 # 0.035 # 0.05 # 0.01
 
 # color setting
 truth_color = "#FF6B6B"
