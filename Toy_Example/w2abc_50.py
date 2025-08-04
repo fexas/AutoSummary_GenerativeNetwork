@@ -28,7 +28,7 @@ N = 12800  #  data_size
 n = 50  # sample_size
 d = 5  # dimension of parameter theta
 d_x = 3  # dimenision of x
-N_proposal = 500000 # number of particles for proposal distribution
+N_proposal = 5000000 # number of particles for proposal distribution
 
 # color setting
 truth_color = "#FF6B6B"
@@ -382,7 +382,7 @@ def run_w2abc(it):
     theta_sample = prior.random(5000)
     observation_sample = toy_sampler(theta_sample)
     distances = np.array([fw2d(obs, x_target) for obs in observation_sample])
-    threshold = np.quantile(distances, 0.01)  # 0.1% quantile as threshold
+    threshold = np.quantile(distances, 0.001)  # 0.1% quantile as threshold
     print("Threshold for Wasserstein distance:", threshold)
 
     time_start = time.time()

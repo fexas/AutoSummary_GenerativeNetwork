@@ -281,7 +281,7 @@ def run_experiments(it):
     TX_ref = dnnabc.predict(X_ref)
     TX_diff_ref = TX_ref - dnnabc.predict(x_target)
     TX_diff_ref = tf.reduce_sum(TX_diff_ref**2, axis=-1)
-    threshold = np.quantile(TX_diff_ref.numpy(),0.01)
+    threshold = np.quantile(TX_diff_ref.numpy(),0.001)
 
     N_simulation = 1000
     iter_num = 500
@@ -386,7 +386,7 @@ def run_experiments(it):
     return accp_rate, bias, bias_vec, low, high, ci_length
 
 
-output_file = f"sir_dnnabc_result1.csv"
+output_file = f"dnnabc_sir_result1.csv"
 with open(output_file, "w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(

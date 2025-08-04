@@ -16,6 +16,7 @@ import time
 import ot
 import csv
 from scipy.integrate import odeint
+import warnings
 
 # -----------------------------
 # Configuration Parameters
@@ -263,8 +264,12 @@ def run_w2abc(it):
     theta_sample = prior.random(5000)
     observation_sample = lv_sampler(theta_sample)
     distances = np.array([tfw2d(obs, x_target) for obs in observation_sample])
-    threshold = np.quantile(distances, 0.01)  # 0.1% quantile as threshold
+    threshold = np.quantile(distances, 0.001)  # 0.1% quantile as threshold
     print("Threshold for Wasserstein distance:", threshold)
+    # if threshold is nan, using warning and return directly
+    if np.isnan(threshold):
+        warnings.warn("Threshold is NaN. Returning directly.")
+        return
 
     time_start = time.time()
     wasserstein_theta, accp_rate = reject_sampling(

@@ -37,7 +37,7 @@ h_mmd = h_mmd**2
 OPTIMIZER_DEFAULTS = {"global_clipnorm": 1.0}
 
 ## DNNABC's parameters
-default_lr = 0.001
+default_lr = 0.0005
 epochs = 500
 batch_size = 256
 
@@ -662,7 +662,7 @@ def run_experiments(it):
     TX_ref = dnnabc.predict(X_ref)
     TX_to_target_ref = TX_ref -dnnabc.predict(x_target)
     TX_to_target_ref = tf.reduce_sum(TX_to_target_ref**2, axis=-1)
-    threshold = np.quantile(TX_to_target_ref.numpy(), 0.01)
+    threshold = np.quantile(TX_to_target_ref.numpy(), 0.001)
     with open(quan1_record_csv, "a", newline="") as file:
         writer = csv.writer(file)
         writer.writerow([threshold])
@@ -670,7 +670,9 @@ def run_experiments(it):
     # ABC_posterior
     
     N_simulation = 1000
-    iter_num = 500
+    iter_num = 5000
+    Theta_accp = []
+    accp_num = 0
 
     for i in range(iter_num):
 
@@ -685,19 +687,16 @@ def run_experiments(it):
         diff = T_X_candidate - dnnabc.predict(x_target)
         mse = tf.reduce_sum(diff**2, axis=1)
 
-        if i == 0:
-            mse_ = mse
-            Theta_candidate_ = Theta_candidate
-        else:
-            mse_ = tf.concat([mse_, mse], axis=0)
-            Theta_candidate_ = tf.concat([Theta_candidate_, Theta_candidate], axis=0)
-    
-    idx = tf.where(mse_ < threshold)
-    idx = tf.squeeze(idx, axis=1)
-    
-    Theta_accp = tf.gather(Theta_candidate_, idx)
-    Theta_accp = tf.cast(Theta_accp, dtype=tf.float32)
-    accp_rate = idx.shape[0] / (N_simulation * iter_num)
+        idx = tf.where(mse < threshold)
+        idx = tf.squeeze(idx, axis=1)
+
+        Theta_candidate_accp = tf.gather(Theta_candidate, idx)
+        Theta_accp.append(Theta_candidate_accp.numpy())
+        accp_num += len(idx)
+
+    Theta_accp = np.concatenate(Theta_accp, axis=0)
+    Theta_accp = tf.convert_to_tensor(Theta_accp, dtype=tf.float32)
+    accp_rate = accp_num / (N_simulation * iter_num)
 
     ps_tf = tf.convert_to_tensor(ps, dtype=tf.float32)
     mmd_dnnabc = compute_mmd(Theta_accp, ps_tf, h_mmd)

@@ -2,9 +2,10 @@
 
 ## HPC3
 
-1. toy example 25:
-2. toy example 100:w2
-3. toy example: dnnabc, w2 replicate
+
+1. toy example 100:w2
+2. toy example: w2 replicate
+3. lotka: dnn
 
 ## Question Mark
 

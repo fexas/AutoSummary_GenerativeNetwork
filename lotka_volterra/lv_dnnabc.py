@@ -295,7 +295,7 @@ def run_experiments(it):
     TX_ref = dnnabc.T(X_ref)
     TX_to_target_ref = TX_ref - dnnabc.T(x_target)
     TX_to_target_ref = tf.reduce_sum(TX_to_target_ref**2, axis=-1)
-    threshold = np.quantile(TX_to_target_ref.numpy(), 0.01)
+    threshold = np.quantile(TX_to_target_ref.numpy(), 0.001)
     with open(quan1_record_csv, mode="a", newline="") as file:
         writer = csv.writer(file)
         writer.writerow([threshold])
