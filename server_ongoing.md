@@ -2,10 +2,10 @@
 
 ## HPC3
 
-
-1. toy example 100:w2
-2. toy example: w2 replicate
-3. lotka: dnn
+1. sir: w2,~~dnnabc~~,mmd,smmd(gcluster1)
+2. toy 25:
+3. toy 100:  - mmd (need to redo this)
+4. lv: w2
 
 ## Question Mark
 

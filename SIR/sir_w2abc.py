@@ -34,7 +34,7 @@ true_ps = np.array([0.4, 0.15])
 true_ps_list = [0.4, 0.15]
 
 # parameters for reject sampling 
-reject_sampling_n_samples = 500000
+reject_sampling_n_samples = 1000000
 
 # File paths
 current_dir = os.getcwd()
@@ -252,7 +252,7 @@ def run_w2abc(it):
     """
 
     wasserstein_p = 2  # order of wasserstein distance
-    wasserstein_lambda = 2  # penalty coefficient for tfw2d
+    wasserstein_lambda = 1 / T_steps  # penalty coefficient for tfw2d
 
 
     prior = sir_prior()

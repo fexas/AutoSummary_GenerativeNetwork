@@ -50,7 +50,17 @@ n_samples_z = 20  # Number of unit vectors in S^{d-1} for slicing
 Np = 500  # 20000  # Number of theta estimates to generate
 batch_size = 256  # Batch size for neural network training
 default_lr = 0.002 # 0.003 # 0.001  # 0.00025  # 0.0005
-epochs = 700
+epochs = 500
+
+# Generator Network Architecture Parameters
+generator_config = {
+    "intermediate_dim": 128,      # First layer and residual block 1 dimension
+    "hidden_dim": 64,       # Residual block 2 dimension
+    "final_hidden_dim": 32,       # Final hidden layer dimension
+    "dropout_rate": 0.3,          # Dropout rate throughout the network
+    "activation": "relu",         # Main activation function
+    "output_activation": "sigmoid" # Output activation for [0,1] constraint
+}
 
 # MCMC Parameters Setup
 Ns = 5  # Number of draws for empirical likelihood estimator
@@ -59,8 +69,8 @@ burn_in = 199  # 199  # Number of burn-in steps
 n_samples = 1
 thin = 10
 proposed_std = 0.05
-quantile_level = 0.0025
-epsilon_upper_bound = 0.02 
+quantile_level = 0.001
+epsilon_upper_bound = 0.1 # 0.2 
 
 # color setting and upper labels
 truth_color = "#FF6B6B"
@@ -263,7 +273,7 @@ class NN(keras.Model):
             Gtheta: [batch_size, M, d]
         """
 
-        bandwidth = tf.constant([1 / n, 4 / n, 9 / n, 16 / n, 25 / n], "float32")
+        bandwidth = tf.constant([1 /(5 * n), 1 /(10 * n)], "float32")
         bandwidth = tf.reshape(bandwidth, (bandwidth.shape[0], 1, 1, 1))
 
         theta_ = tf.expand_dims(theta, 1)  # (N,1,d)
@@ -294,7 +304,7 @@ class NN(keras.Model):
         """
 
         bandwidth = tf.constant(
-            [1 / (2 * n)], "float32"
+            [1 / (2 * n), 1 / (5 * n)], "float32"
         )  # tf.constant([1 / n, 1 / (4 * n), 1 / (25 * n)], "float32")
         constant = tf.sqrt(1 / bandwidth)
 
@@ -325,7 +335,7 @@ class NN(keras.Model):
         )
 
         # slice_MMD_loss = loss_term1 - 2 * loss_term2
-        slice_MMD_loss = loss_term1 * M**2 / (M * (M - 1)) - 2 * loss_term2
+        slice_MMD_loss = loss_term1 * M / (M-1) - 2 * loss_term2
 
         return slice_MMD_loss
 
@@ -387,39 +397,97 @@ def run_experiments(it):
     T = GRUSummary(gru_units=gru_units, summary_dim=summary_dim, dropout_rate=0.1)
 
     # -----------------------------
-    # Generator Network Definition
+    # Generator Network Definition with Configurable Architecture
     # -----------------------------
-    intermediate_dim_G = 128
-    G_inputs = keras.Input(shape=([p + d]))  # Input: z_i & T(x_{1:n}^i)
+    # Extract configuration parameters
+    intermediate_dim_G = generator_config["intermediate_dim"]
+    hidden_dim_G = generator_config["hidden_dim"]
+    final_hidden_dim_G = generator_config["final_hidden_dim"]
+    dropout_rate_G = generator_config["dropout_rate"]
+    activation_G = generator_config["activation"]
+    output_activation_G = generator_config["output_activation"]
+    
+    # Derived dimensions
+    input_dim_G = p + d          # Input dimension: z_i & T(x_{1:n}^i)
+    output_dim_G = d             # Output dimension (SIR parameters)
+    
+    G_inputs = keras.Input(shape=([input_dim_G]))
 
-    # Create dense network with L1 regularization
+    # Initial projection layer
     x = layers.Dense(
         units=intermediate_dim_G,
-        activation="relu",
-        kernel_regularizer=regularizers.l1(0.01),
         kernel_initializer="he_normal",
+        name="initial_projection"
     )(G_inputs)
-    # x = layers.Dense(
-    #     units=128,
-    #     activation="relu",
-    #     kernel_regularizer=regularizers.l1(0.01),
-    #     kernel_initializer="he_normal",
-    # )(x)
-    x = layers.Dense(
-        units=64,
-        activation="relu",
-        kernel_regularizer=regularizers.l1(0.01),
-        kernel_initializer="he_normal",
-    )(x)
-    x = layers.Dense(
-        units=32,
-        activation="relu",
-        kernel_regularizer=regularizers.l1(0.01),
-        kernel_initializer="he_normal",
-    )(x)
-    G_outputs = layers.Dense(units=d)(x)
+    x = layers.BatchNormalization(name="initial_bn")(x)
+    x = layers.Activation(activation_G, name="initial_activation")(x)
+    x = layers.Dropout(dropout_rate_G, name="initial_dropout")(x)
 
-    G = keras.Model(G_inputs, G_outputs, name="G")
+    # Residual block 1 (intermediate_dim_G -> intermediate_dim_G)
+    residual = x
+    x = layers.Dense(
+        units=intermediate_dim_G,
+        kernel_initializer="he_normal",
+        name="resblock1_dense1"
+    )(x)
+    x = layers.BatchNormalization(name="resblock1_bn1")(x)
+    x = layers.Activation(activation_G, name="resblock1_act1")(x)
+    x = layers.Dropout(dropout_rate_G, name="resblock1_dropout1")(x)
+    
+    x = layers.Dense(
+        units=intermediate_dim_G,
+        kernel_initializer="he_normal",
+        name="resblock1_dense2"
+    )(x)
+    x = layers.BatchNormalization(name="resblock1_bn2")(x)
+    x = layers.Add(name="resblock1_add")([x, residual])  # Residual connection
+    x = layers.Activation(activation_G, name="resblock1_final_act")(x)
+
+    # Residual block 2 (intermediate_dim_G -> hidden_dim_G)
+    residual = x
+    x = layers.Dense(
+        units=hidden_dim_G,
+        kernel_initializer="he_normal",
+        name="resblock2_dense1"
+    )(x)
+    x = layers.BatchNormalization(name="resblock2_bn1")(x)
+    x = layers.Activation(activation_G, name="resblock2_act1")(x)
+    x = layers.Dropout(dropout_rate_G, name="resblock2_dropout")(x)
+
+    # Project residual to match dimensions for skip connection
+    residual_proj = layers.Dense(
+        hidden_dim_G, 
+        kernel_initializer="he_normal",
+        name="resblock2_projection"
+    )(residual)
+    x = layers.Dense(
+        units=hidden_dim_G,
+        kernel_initializer="he_normal",
+        name="resblock2_dense2"
+    )(x)
+    x = layers.BatchNormalization(name="resblock2_bn2")(x)
+    x = layers.Add(name="resblock2_add")([x, residual_proj])  # Residual connection
+    x = layers.Activation(activation_G, name="resblock2_final_act")(x)
+
+    # Final hidden layer (hidden_dim_G -> final_hidden_dim_G)
+    x = layers.Dense(
+        units=final_hidden_dim_G,
+        activation=activation_G,
+        kernel_initializer="he_normal",
+        name="final_hidden"
+    )(x)
+    x = layers.LayerNormalization(name="final_layer_norm")(x)
+    x = layers.Dropout(dropout_rate_G, name="final_dropout")(x)
+
+    # Output layer with sigmoid to ensure [0,1] range for SIR parameters
+    G_outputs = layers.Dense(
+        units=output_dim_G, 
+        activation=output_activation_G,
+        kernel_initializer="glorot_normal",
+        name="output_layer"
+    )(x)
+
+    G = keras.Model(G_inputs, G_outputs, name="ConfigurableResidualGenerator")
     G.summary()
 
     nn = NN(G=G, T=T)

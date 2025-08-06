@@ -321,7 +321,7 @@ def run_experiments(it):
     # ABC_posterior
 
     N_simulation = 1000
-    iter_num = 500
+    iter_num = 1000
 
     for i in range(iter_num):
 

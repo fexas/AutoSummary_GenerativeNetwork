@@ -1,0 +1,201 @@
+\documentclass[11pt,a4paper]{article}
+
+% Required packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amsfonts,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{multicol}
+\usepackage{longtable}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage[table,xcdraw]{xcolor}
+\usepackage{geometry}
+\usepackage{hyperref}
+
+% Page layout
+\geometry{
+    left=2.5cm,
+    right=2.5cm,
+    top=2.5cm,
+    bottom=2.5cm
+}
+
+% Table formatting
+\captionsetup[table]{position=top}
+\renewcommand{\arraystretch}{1.2}
+
+% Document metadata
+\title{Research Results Tables}
+\author{Your Name}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+This document contains tables presenting the results of computational experiments.
+
+
+% Toy Example Results
+\section{Toy Example Results}
+
+\begin{table*}[!htbp]
+\centering
+\caption{Results on Toy Examples.}
+\label{tab:model_performance_final}
+
+% 关键：用 \resizebox 缩放到页面宽度
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l *{8}{c}}
+\hline
+& \multicolumn{2}{c}{\textbf{SMMD}} 
+& \multicolumn{2}{c}{\textbf{MMD}} 
+& \multicolumn{2}{c}{\textbf{Bayesflow}} 
+& \textbf{DNN-ABC} 
+& \textbf{W2-ABC} \\
+\cline{2-3} \cline{4-5} \cline{6-7} \cline{8-8} \cline{9-9}
+& Original & Refined & Original & Refined & Original & Refined & Original & Original \\
+\hline
+\textbf{MMD(n=50)} 
+& 3.43 & 1.39 & 3.91 & 1.82 & 2.45 & 1.71 & 12.47 & 10.73 \\
+
+\textbf{MMD(n=25)} 
+& 4.15 & 2.26  & 3.91 & 1.92 & 3.84  & 3.31  & 12.57  & 10 \\
+
+\textbf{MMD(n=100)} 
+& 6.26   & 2.52  & 4.28 & 3.02 & 5.5 & 3.47  & 13.76 & 13.12 \\
+
+\hline
+\end{tabular}   
+}
+
+\vspace{0.5em}
+\footnotesize % 缩小注释字体
+\textit{Note:} All values in the table are the original data multiplied by 100, rounded to two decimal places.
+
+\end{table*}
+
+% Lotka-Volterra Model Results
+\section{Lotka-Volterra Model Results}
+
+\begin{table*}[!htbp]
+\centering
+\caption{Results on Lotka-Volterra Model.}
+\label{tab:lotka_volterra_model_performance_final}
+
+% 关键：用 \resizebox 缩放到页面宽度
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l *{8}{c}}
+\hline
+& \multicolumn{2}{c}{\textbf{SMMD}} 
+& \multicolumn{2}{c}{\textbf{MMD}} 
+& \multicolumn{2}{c}{\textbf{Bayesflow}} 
+& \textbf{DNN-ABC} 
+& \textbf{W2-ABC} \\
+\cline{2-3} \cline{4-5} \cline{6-7} \cline{8-8} \cline{9-9}
+& Original & Refined & Original & Refined & Original & Refined & Original & Original \\
+\hline
+\textbf{Bias} 
+& 1.47 & 0.18 & 1.42 & 0.13 & 1.66 & 0.2 & 3.37 & 42.3 \\
+
+\textbf{95\% CI Len ($\theta_1$)} 
+& 2.16  & 1.96  & 2.94 & 1.59 & 1.2   & 0.85    & 16.03  & 22.95 \\
+
+\textbf{95\% CI Len ($\theta_2$)} 
+& 2.64    & 2.29  & 2.91 & 2.03 & 3.45  & 1.9   & 11.22    & 67.67 \\
+
+\textbf{95\% CI Len ($\theta_3$)} 
+& 2.15    & 1.3  & 3.07 & 1.48  & 1.02 & 0.67  & 15.77    & 23.48 \\ 
+
+\textbf{95\% CI Len ($\theta_4$)} 
+& 3.04    & 2.96  & 2.74 & 3 & 3.69  & 2.42   & 13.33    & 67.95 \\ 
+\hline
+\end{tabular}%
+}
+
+\vspace{0.5em}
+\footnotesize % 缩小注释字体
+\textit{Note:} All values in the table are the original data multiplied by 10, rounded to two decimal places.
+
+\end{table*}
+
+% SIR Model Results
+\section{SIR Model Results}
+
+
+
+\begin{table*}[!htbp]
+\centering
+\caption{Results on SIR Model.}
+\label{tab:sir_model_performance_final}
+
+% 关键：用 \resizebox 缩放到页面宽度
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{l *{8}{c}}
+\hline
+& \multicolumn{2}{c}{\textbf{SMMD}} 
+& \multicolumn{2}{c}{\textbf{MMD}} 
+& \multicolumn{2}{c}{\textbf{Bayesflow}} 
+& \textbf{DNN-ABC} 
+& \textbf{W2-ABC} \\
+\cline{2-3} \cline{4-5} \cline{6-7} \cline{8-8} \cline{9-9}
+& Original & Refined & Original & Refined & Original & Refined & Original & Original \\
+\hline
+\textbf{Bias} 
+& 0.99 & 0.02 & 1.2 & 0.04 & 0.04 & 0.03 & 0.09 & 0.39 \\
+
+\textbf{95\% CI Len ($\theta_1$)} 
+& 5.95  & 2.56  & 8.02 & 3.65 & 4.8   & 4.26    & 7.78  & 27.85 \\
+
+\textbf{95\% CI Len ($\theta_2$)} 
+& 6.69    & 3.16   & 8.43   & 4.66 & 4.88  & 4.4    & 7.38    & 22.43 \\
+\hline
+\end{tabular}%
+}
+
+\vspace{0.5em}
+\footnotesize % 缩小注释字体
+\textit{Note:} Values for "Bias" are the original data multiplied by 10, while values for "95\% CI Len" are the original data multiplied by 100. All results are rounded to three decimal places.
+\end{table*}
+
+% Summary table for improvement analysis
+% \section{Summary and Analysis}
+
+% \begin{table}[H]
+% \centering
+% \caption{Improvement Analysis: Performance Before and After ABC-MCMC Refinement}
+% \label{tab:improvement_analysis}
+% \begin{tabular}{@{}lcccc@{}}
+% \toprule
+% \textbf{Base Method} & \textbf{Model} & \textbf{Before Refinement} & \textbf{After Refinement} & \textbf{Improvement (\%)} \\
+% \midrule
+% \multirow{3}{*}{SMMD} & Toy Example & 0.000 & 0.000 & 0.0\% \\
+%                       & Lotka-Volterra & 0.000 & 0.000 & 0.0\% \\
+%                       & SIR & 0.000 & 0.000 & 0.0\% \\
+% \midrule
+% \multirow{3}{*}{BF}   & Toy Example & 0.000 & 0.000 & 0.0\% \\
+%                       & Lotka-Volterra & 0.000 & 0.000 & 0.0\% \\
+%                       & SIR & 0.000 & 0.000 & 0.0\% \\
+% \midrule
+% \multirow{3}{*}{MMD}  & Toy Example & 0.000 & 0.000 & 0.0\% \\
+%                       & Lotka-Volterra & 0.000 & 0.000 & 0.0\% \\
+%                       & SIR & 0.000 & 0.000 & 0.0\% \\
+% \bottomrule
+% \end{tabular}
+% \end{table}
+
+% \section{Notes}
+% \begin{itemize}
+%     \item All values are placeholder (0.000) and should be replaced with actual experimental results
+%     \item Tables are formatted for professional academic presentation
+%     \item Use \texttt{\textbackslash ref\{tab:label\}} to reference tables in text
+%     \item Adjust decimal places and formatting as needed for your specific data
+% \end{itemize}
+
+\end{document}

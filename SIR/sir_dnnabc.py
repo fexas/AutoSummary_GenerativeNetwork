@@ -284,7 +284,7 @@ def run_experiments(it):
     threshold = np.quantile(TX_diff_ref.numpy(),0.001)
 
     N_simulation = 1000
-    iter_num = 500
+    iter_num = 1000
 
     for i in range(iter_num):
 
